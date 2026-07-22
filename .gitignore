@@ -1,0 +1,21 @@
+## Visual Studio ve C# İçi Temizlik Kuralları
+
+# Derleme Çıktıları (Gereksiz Büyüklük Yapan Dosyalar)
+[Bb]in/
+[Oo]bj/
+out/
+
+# Visual Studio Geçici Klasörleri ve Kullanıcı Ayarları
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+
+# Paketler
+packages/
+*.nupkg
+
+# İşletim Sistemi Geçici Dosyaları
+.DS_Store
+Thumbs.db
