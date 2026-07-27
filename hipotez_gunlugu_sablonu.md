@@ -1,90 +1,8 @@
 # Hipotez Günlüğü — GravenAbyss Algoritmik Ticaret Motoru
 
-Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod tabanına giren tüm stratejilerin, göstergelerin, parametrelerin ve eşik değerlerinin test edilip kanıtlandığı resmi **Hipotez Günlüğüdür**.
+Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod tabanına giren tüm stratejilerin, göstergelerin, parametrelerin ve eşik değerlerinin test edilip kanıtlandığı resmi **Hipotez Günlüğüdür**. Tüm hipotezler kronolojik sırayla (H-001, H-002, H-003...) listelenmiştir.
 
 ---
-
-# 🔴 ÇÜRÜTÜLMÜŞ HİPOTEZLER (REJECTED / REFUTED HYPOTHESES)
-
-## Kayıt No: H-002
-**Tarih:** 2026-07-20  
-**Hipotez:** Veri analizi için 50 günlük hareketli ortalama (SMA-50) kullanılacak, bu sayede 50 günlük geçmiş verilere bakarak daha uygun alımlar yapmasını sağlayacaktır.  
-**Test Yöntemi:** 3 farklı yatırımcı profili (Garantici, Dengeli, Riskli) oluşturulup 50 günlük SMA kesişimlerine göre alım yüzdeleri belirlenerek backtest çalıştırıldı.  
-**Karar Kuralı:** Eğer ki düzgün ve kârlı bir alım yaparlarsa hipotez doğrulanmış sayılacak; aksi halde çürütülecektir.  
--- Test Sonrası --  
-**Sonuç:** Çürütüldü ❌  
-**Sayısal Bulgu:** Garantici: %-1,0, Dengeli: %-3,0, Riskli: Alım sinyali bile veremedi.  
-**Öğrenilen:** İstenilenin aksine Garantici mod zarar etti, en çok kazanan Dengeli oldu, Riskli profil ise katı kurallar yüzünden hiç alım yapamadı. Hareketli ortalamanın gecikmeli yapısı yüzünden her profil için dinamik yeni sınırlar koyulmalıdır.  
-**Koddaki Karşılığı:** Statik SMA-50 kesişim motoru koddan tamamen kaldırıldı.
-
----
-
-## Kayıt No: H-006
-**Tarih:** 2026-07-20  
-**Hipotez:** Verinin ilk 12 ayı boyunca beklemede kalıp araştırma yapmak yerine, başlangıç tarihinden itibaren 60 günlük dinamik tarama penceresiyle hemen işleme başlamak toplam kârlılığı artırır.  
-**Test Yöntemi:** Sabit 12 aylık eğitim penceresi ile 60 günlük dinamik pencerenin kıyaslanması.  
-**Karar Kuralı:** Kârlılık ve piyasa adaptasyonu artarsa kabul edilir.  
--- Test Sonrası --  
-**Sonuç:** Çürütüldü ❌  
-**Sayısal Bulgu:** 10.000 TL bakiye ile testte: +630,98 TL (%6,31 Kâr), +123,62 TL (%1,24 Kâr), +347,61 TL (%3,48 Kâr).  
-**Öğrenilen:** Erken dönemde yeterli veri birikmediği için risk analizi eksik kaldı. Kâr edildi fakat uzun vadeli trend getirilerine kıyasla kârlılık oranlarında belirgin düşüş görüldü.  
-**Koddaki Karşılığı:** Çürütüldüğü için kaldırıldı; vadelere göre adapte olan kayan pencere (Rolling Window) mimarisine geçildi.
-
----
-
-## Kayıt No: H-012
-**Tarih:** 2026-07-22  
-**Hipotez:** Fiyatı 200 günlük Basit Hareketli Ortalamasının (SMA-200) altında olan hisselerde alım yapmayı reddetmek, çöküş trendindeki sahte tepki yükselişlerini engeller ve sermayeyi korur.  
-**Test Yöntemi:** 7 hisseli veri setinde SMA-200 filtresi Açık ve Kapalı olarak test edildi.  
-**Karar Kuralı:** SMA-200 filtresi kârlılığı artırırsa koda alınır; düşürürse çürütülür.  
--- Test Sonrası --  
-**Sonuç:** Çürütüldü ❌  
-**Sayısal Bulgu:** SMA-200 Filtresi Kapalı Net Getiri: **+%24,80 Kâr (+2.480,15 TL)**, SMA-200 Filtresi Açık Net Getiri: **+%4,80 Kâr (+960,72 TL)**.  
-**Öğrenilen:** SMA-200 son derece gecikmeli (Lagging) bir gösterge olduğu için dip seviyelerdeki aşırı satım (RSI Dip) ve dönüş fırsatlarını kaçırmış, toplam kâr marjını %80 oranında eritmiştir.  
-**Koddaki Karşılığı:** Çürütüldüğü için ana alım filtresi olarak koda eklenmedi.
-
----
-
-## Kayıt No: H-017
-**Tarih:** 2026-07-23  
-**Hipotez:** Alım sinyali için sadece RSI'ın dip seviyelere inmesi yetmez; fiyatın son 2 işlem gününün en yüksek fiyatını yukarı kırmasını (Trend Dönüş Teyidi) şart koşmak, düşen bıçağı tutmayı engeller ve işlem kalitesini yükseltir.  
-**Test Yöntemi:** `AlimSinyaliVeSkorHesapla` metoduna `bugun.Kapanis > son2GunEnYuksek` şartı eklenerek 10.000 TL bakiye ile test edildi.  
-**Karar Kuralı:** Sistem kârlılığını artırırsa kural kodda kalır; aksi halde kaldırılır.  
--- Test Sonrası --  
-**Sonuç:** Çürütüldü ❌  
-**Sayısal Bulgu:** Sistem **-1.494,60 TL (%-14,95 Zarar)** elde etmiştir. Sinyal sayısı aşırı azalmış ve T+1 Gap-Up filtresiyle çakışarak büyük rallilerin kaçırılmasına neden olmuştur.  
-**Öğrenilen:** Sert dip dönüşlerinde "son 2 günün en yükseğini kırma" şartı çok gecikmeli kalmaktadır. Fiyat dönüş teyidi verirken %3'lük Gap-Up sınırını aştığı için emirler iptal olmakta ve kârlı trendler kaçmaktadır.  
-**Koddaki Karşılığı:** Koda eklenen `trendKirilimiOnayli` şartı kaldırıldı.
-
----
-
-## Kayıt No: H-020
-**Tarih:** 2026-07-25  
-**Hipotez:** Portföy seviyesinde Genel Panik Devre Kesicisi (Circuit Breaker) kullanıp, portföy zirveden %10 gerilediğinde tüm alımları 10 gün boyunca dondurmak sermaye erimesini engeller.  
-**Test Yöntemi:** Portföy Drawdown > %10 olduğunda 10 günlük dondurma sayacı çalıştırılarak backtest yapıldı.  
-**Karar Kuralı:** Devre kesici genel kârlılığı ve Sharpe oranını artırırsa kural kalıcı olur.  
--- Test Sonrası --  
-**Sonuç:** Çürütüldü ❌  
-**Sayısal Bulgu:** Devre Kesicili Sistem Net Kârı: **+%112,40**, Hisse Bazlı Akıllı İzleyen Stop Net Kârı: **+%377,05**.  
-**Öğrenilen:** Genel portföy devre kesicisi, Boğa piyasasındaki kısa süreli silkelemelerde botu gereksiz yere dondurmakta ve bot tam dip yaptıktan sonra başlayan devasa boğa rallilerini kaçırmaktadır. Bunun yerine hisse bazlı Akıllı İzleyen Stop kullanılması katbekat daha yüksek verim sunmuştur.  
-**Koddaki Karşılığı:** Genel portföy dondurma döngüsü koddan çıkarıldı; riski her hissenin kendi İzleyen Stop'u yönetmeye başladı.
-
----
-
-## Kayıt No: H-021
-**Tarih:** 2026-07-26  
-**Hipotez:** Stok Split (Bölünme) algılama eşiğini maliyet bazında %30 (`0.70m`) seviyesinde tutmak, fiyat düşüşlerini bölünme olarak doğru etiketlemek için yeterlidir.  
-**Test Yöntemi:** AVGO, NVDA, GOOGL ve ASELS gibi tarihsel CSV verisi içeren hisselerde %30 split eşiği çalıştırıldı.  
-**Karar Kuralı:** Tüm tarihsel fiyat sıçramaları doğru split olarak algılanırsa hipotez doğrulanır.  
--- Test Sonrası --  
-**Sonuç:** Çürütüldü ❌  
-**Sayısal Bulgu:** %30 eşiğinde bot, AVGO ve GOOGL hisselerindeki %14 - %16'lık bölünme ve temettü boşluklarını "Piyasa Zararı" sanarak hisseleri -4.500 TL zararla stop-loss yaptı ve ralliyi kaçırdı.  
-**Öğrenilen:** Ham CSV verilerindeki bölünmeler ve temettü düzeltmeleri sıklıkla %12 ile %20 arasındadır. %30 eşiği çok yüksek kaldığı için bölünmeleri kaçırmış ve sahte stop satışlarına yol açmıştır. Eşik %12'ye (`0.88m`) düşürülerek sorun çözülmüştür.  
-**Koddaki Karşılığı:** `SatisKontroluVeZirveGuncelle` içinde `0.70m` değeri `0.88m` (%12) olarak güncellendi.
-
----
-
-# 🟢 DOĞRULANMIŞ HİPOTEZLER (VERIFIED / CONFIRMED HYPOTHESES)
 
 ## Kayıt No: H-001
 **Tarih:** 2026-07-20  
@@ -96,6 +14,19 @@ Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod taban�
 **Sayısal Bulgu:** Donchian kırılım sinyalleri işlem başarı oranını (Win Rate) %52'den %73.6'ya yükseltmiştir.  
 **Öğrenilen:** Donchian kırılımları trend başlangıçlarını yakalamada son derece güvenilir bir momentum tetikleyicisidir.  
 **Koddaki Karşılığı:** `AlimSinyaliVeSkorHesapla` içinde `bool donchianBreakout = bugun.Kapanis > oncekiMax20GunFiyati;` satırı.
+
+---
+
+## Kayıt No: H-002
+**Tarih:** 2026-07-20  
+**Hipotez:** Veri analizi için 50 günlük hareketli ortalama (SMA-50) kullanılacak, bu sayede 50 günlük geçmiş verilere bakarak daha uygun alımlar yapmasını sağlayacaktır.  
+**Test Yöntemi:** 3 farklı yatırımcı profili (Garantici, Dengeli, Riskli) oluşturulup 50 günlük SMA kesişimlerine göre alım yüzdeleri belirlenerek backtest çalıştırıldı.  
+**Karar Kuralı:** Eğer ki düzgün ve kârlı bir alım yaparlarsa hipotez doğrulanmış sayılacak; aksi halde çürütülecektir.  
+-- Test Sonrası --  
+**Sonuç:** Çürütüldü ❌  
+**Sayısal Bulgu:** Garantici: %-1,0, Dengeli: %-3,0, Riskli: Alım sinyali bile veremedi.  
+**Öğrenilen:** İstenilenin aksine Garantici mod zarar etti, en çok kazanan Dengeli oldu, Riskli profil ise katı kurallar yüzünden hiç alım yapamadı. Hareketli ortalamanın gecikmeli yapısı yüzünden her profil için dinamik yeni sınırlar koyulmalıdır.  
+**Koddaki Karşılığı:** Statik SMA-50 kesişim motoru koddan tamamen kaldırıldı.
 
 ---
 
@@ -135,6 +66,19 @@ Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod taban�
 **Sayısal Bulgu:** Stop-loss koruması sayesinde kriz dönemlerinde portföy erimesi durdurulmuş, Garantici modda sermaye başa baş korunmuştur.  
 **Öğrenilen:** Stop-loss disiplini algoritmik ticaretin hayatta kalma garantisidir.  
 **Koddaki Karşılığı:** `decimal stopYuzdesi = _tur == YatirimciTuru.Garantici ? 0.04m : ...`
+
+---
+
+## Kayıt No: H-006
+**Tarih:** 2026-07-20  
+**Hipotez:** Verinin ilk 12 ayı boyunca beklemede kalıp araştırma yapmak yerine, başlangıç tarihinden itibaren 60 günlük dinamik tarama penceresiyle hemen işleme başlamak toplam kârlılığı artırır.  
+**Test Yöntemi:** Sabit 12 aylık eğitim penceresi ile 60 günlük dinamik pencerenin kıyaslanması.  
+**Karar Kuralı:** Kârlılık ve piyasa adaptasyonu artarsa kabul edilir.  
+-- Test Sonrası --  
+**Sonuç:** Çürütüldü ❌  
+**Sayısal Bulgu:** 10.000 TL bakiye ile testte: +630,98 TL (%6,31 Kâr), +123,62 TL (%1,24 Kâr), +347,61 TL (%3,48 Kâr).  
+**Öğrenilen:** Erken dönemde yeterli veri birikmediği için risk analizi eksik kaldı. Kâr edildi fakat uzun vadeli trend getirilerine kıyasla kârlılık oranlarında belirgin düşüş görüldü.  
+**Koddaki Karşılığı:** Çürütüldüğü için kaldırıldı; vadelere göre adapte olan kayan pencere (Rolling Window) mimarisine geçildi.
 
 ---
 
@@ -203,6 +147,19 @@ Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod taban�
 
 ---
 
+## Kayıt No: H-012
+**Tarih:** 2026-07-22  
+**Hipotez:** Fiyatı 200 günlük Basit Hareketli Ortalamasının (SMA-200) altında olan hisselerde alım yapmayı reddetmek, çöküş trendindeki sahte tepki yükselişlerini engeller ve sermayeyi korur.  
+**Test Yöntemi:** 7 hisseli veri setinde SMA-200 filtresi Açık ve Kapalı olarak test edildi.  
+**Karar Kuralı:** SMA-200 filtresi kârlılığı artırırsa koda alınır; düşürürse çürütülür.  
+-- Test Sonrası --  
+**Sonuç:** Çürütüldü ❌  
+**Sayısal Bulgu:** SMA-200 Filtresi Kapalı Net Getiri: **+%24,80 Kâr (+2.480,15 TL)**, SMA-200 Filtresi Açık Net Getiri: **+%4,80 Kâr (+960,72 TL)**.  
+**Öğrenilen:** SMA-200 son derece gecikmeli (Lagging) bir gösterge olduğu için dip seviyelerdeki aşırı satım (RSI Dip) ve dönüş fırsatlarını kaçırmış, toplam kâr marjını %80 oranında eritmiştir.  
+**Koddaki Karşılığı:** Çürütüldüğü için ana alım filtresi olarak koda eklenmedi.
+
+---
+
 ## Kayıt No: H-013
 **Tarih:** 2026-07-22  
 **Hipotez:** RSI göstergesi yerine, istatistiksel sapmayı ölçen Bollinger Bantları (20, 2) stratejisini kullanmak yatay ve oynak piyasalarda sahte sinyalleri azaltarak kârlılık sağlar.  
@@ -242,6 +199,19 @@ Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod taban�
 
 ---
 
+## Kayıt No: H-017
+**Tarih:** 2026-07-23  
+**Hipotez:** Alım sinyali için sadece RSI'ın dip seviyelere inmesi yetmez; fiyatın son 2 işlem gününün en yüksek fiyatını yukarı kırmasını (Trend Dönüş Teyidi) şart koşmak, düşen bıçağı tutmayı engeller ve işlem kalitesini yükseltir.  
+**Test Yöntemi:** `AlimSinyaliVeSkorHesapla` metoduna `bugun.Kapanis > son2GunEnYuksek` şartı eklenerek 10.000 TL bakiye ile test edildi.  
+**Karar Kuralı:** Sistem kârlılığını artırırsa kural kodda kalır; aksi halde kaldırılır.  
+-- Test Sonrası --  
+**Sonuç:** Çürütüldü ❌  
+**Sayısal Bulgu:** Sistem **-1.494,60 TL (%-14,95 Zarar)** elde etmiştir. Sinyal sayısı aşırı azalmış ve T+1 Gap-Up filtresiyle çakışarak büyük rallilerin kaçırılmasına neden olmuştur.  
+**Öğrenilen:** Sert dip dönüşlerinde "son 2 günün en yükseğini kırma" şartı çok gecikmeli kalmaktadır. Fiyat dönüş teyidi verirken %3'lük Gap-Up sınırını aştığı için emirler iptal olmakta ve kârlı trendler kaçmaktadır.  
+**Koddaki Karşılığı:** Koda eklenen `trendKirilimiOnayli` şartı kaldırıldı.
+
+---
+
 ## Kayıt No: H-018
 **Tarih:** 2026-07-23  
 **Hipotez:** Gap-Up iptal sınırını Boğa piyasasında %2.00 (2 kat), normal piyasada %1.05 seviyesinde tutarak aşırı fiyat boşluğu olan sıçramalarda tepe fiyatlardan alım yapmayı engellemek sermayeyi korur.  
@@ -252,6 +222,32 @@ Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod taban�
 **Sayısal Bulgu:** Aşırı gap-up yapan manipülatif açılış emri iptal edilerek hatalı tepeden alım yapılması %100 engellenmiştir.  
 **Öğrenilen:** Gap-Up filtresi canlı piyasada oluşabilecek açılış sıçramalarında sistemi koruyan güçlü bir kalkandır.  
 **Koddaki Karşılığı:** `IslemYapTPlus1` içindeki `maxGapYuzdesi` kontrolü.
+
+---
+
+## Kayıt No: H-020
+**Tarih:** 2026-07-25  
+**Hipotez:** Portföy seviyesinde Genel Panik Devre Kesicisi (Circuit Breaker) kullanıp, portföy zirveden %10 gerilediğinde tüm alımları 10 gün boyunca dondurmak sermaye erimesini engeller.  
+**Test Yöntemi:** Portföy Drawdown > %10 olduğunda 10 günlük dondurma sayacı çalıştırılarak backtest yapıldı.  
+**Karar Kuralı:** Devre kesici genel kârlılığı ve Sharpe oranını artırırsa kural kalıcı olur.  
+-- Test Sonrası --  
+**Sonuç:** Çürütüldü ❌  
+**Sayısal Bulgu:** Devre Kesicili Sistem Net Kârı: **+%112,40**, Hisse Bazlı Akıllı İzleyen Stop Net Kârı: **+%377,05**.  
+**Öğrenilen:** Genel portföy devre kesicisi, Boğa piyasasındaki kısa süreli silkelemelerde botu gereksiz yere dondurmakta ve bot tam dip yaptıktan sonra başlayan devasa boğa rallilerini kaçırmaktadır. Bunun yerine hisse bazlı Akıllı İzleyen Stop kullanılması katbekat daha yüksek verim sunmuştur.  
+**Koddaki Karşılığı:** Genel portföy dondurma döngüsü koddan çıkarıldı; riski her hissenin kendi İzleyen Stop'u yönetmeye başladı.
+
+---
+
+## Kayıt No: H-021
+**Tarih:** 2026-07-26  
+**Hipotez:** Stok Split (Bölünme) algılama eşiğini maliyet bazında %30 (`0.70m`) seviyesinde tutmak, fiyat düşüşlerini bölünme olarak doğru etiketlemek için yeterlidir.  
+**Test Yöntemi:** AVGO, NVDA, GOOGL ve ASELS gibi tarihsel CSV verisi içeren hisselerde %30 split eşiği çalıştırıldı.  
+**Karar Kuralı:** Tüm tarihsel fiyat sıçramaları doğru split olarak algılanırsa hipotez doğrulanır.  
+-- Test Sonrası --  
+**Sonuç:** Çürütüldü ❌  
+**Sayısal Bulgu:** %30 eşiğinde bot, AVGO ve GOOGL hisselerindeki %14 - %16'lık bölünme ve temettü boşluklarını "Piyasa Zararı" sanarak hisseleri -4.500 TL zararla stop-loss yaptı ve ralliyi kaçırdı.  
+**Öğrenilen:** Ham CSV verilerindeki bölünmeler ve temettü düzeltmeleri sıklıkla %12 ile %20 arasındadır. %30 eşiği çok yüksek kaldığı için bölünmeleri kaçırmış ve sahte stop satışlarına yol açmıştır. Eşik %12'ye (`0.88m`) düşürülerek sorun çözülmüştür.  
+**Koddaki Karşılığı:** `SatisKontroluVeZirveGuncelle` içinde `0.70m` değeri `0.88m` (%12) olarak güncellendi.
 
 ---
 
