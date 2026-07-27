@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -7,7 +7,7 @@ using System.Linq;
 // ==========================================
 // 1. STRATEJİ VE VERİ MODELLERİ
 // ==========================================
-public enum YatirimciTuru { Garantici = 1, Dengeli = 2, Riskli = 3 }
+public enum YatirimciTuru { Garantici = 1, Dengeli = 2, AgresifRiskli = 3, BollingerBantlari = 4 }
 public enum VadeTuru { KisaVade = 1, OrtaVade = 2, UzunVade = 3 }
 
 public class StockData
@@ -15,6 +15,7 @@ public class StockData
     public DateTime Tarih { get; set; }
     public string Sembol { get; set; }
     public decimal Kapanis { get; set; }
+    public decimal Acilis { get; set; }
     public decimal Hacim { get; set; }
 }
 
@@ -22,6 +23,23 @@ public class MacroEvent
 {
     public DateTime Tarih { get; set; }
     public int EtkiDerecesi { get; set; }
+}
+
+public class AlimAdayi
+{
+    public StockData GunVerisi { get; set; }
+    public decimal RSI { get; set; }
+    public decimal HacimOrani { get; set; }
+    public decimal Skor { get; set; }
+    public decimal ATR { get; set; }
+    public decimal EMA200 { get; set; }
+}
+
+public class BekleyenEmir
+{
+    public AlimAdayi Aday { get; set; }
+    public DateTime SinyalTarihi { get; set; }
+    public decimal SinyalKapanisFiyati { get; set; }
 }
 
 // ==========================================
@@ -68,17 +86,25 @@ public class DataLoader
             if (tumSatirlar.Length <= 1) continue;
 
             char ayirici = tumSatirlar[0].Contains(";") ? ';' : ',';
-            string baslik = tumSatirlar[0].ToLower();
-            bool sentetikFormatMi = baslik.Contains("sembol");
+            var basliklar = SplitCsvLine(tumSatirlar[0], ayirici).Select(b => b.ToLower().Trim()).ToList();
+
+            int tarihIdx = basliklar.FindIndex(b => b.Contains("date") || b.Contains("tarih"));
+            int kapanisIdx = basliklar.FindIndex(b => b.Contains("price") || b.Contains("kapanis") || b.Contains("close") || b.Contains("şimdi") || b.Contains("son"));
+            int acilisIdx = basliklar.FindIndex(b => b.Contains("open") || b.Contains("acilis") || b.Contains("açılış"));
+            int hacimIdx = basliklar.FindIndex(b => b.Contains("vol") || b.Contains("hacim") || b.Contains("hac."));
+
+            if (tarihIdx == -1) tarihIdx = 0;
+            if (kapanisIdx == -1) kapanisIdx = 1;
+            if (acilisIdx == -1) acilisIdx = kapanisIdx;
 
             foreach (var satir in tumSatirlar.Skip(1))
             {
                 if (string.IsNullOrWhiteSpace(satir)) continue;
 
-                var s = satir.Replace("\"", "").Split(ayirici);
-                if (s.Length < 6) continue;
+                var s = SplitCsvLine(satir, ayirici);
+                if (s.Length <= Math.Max(kapanisIdx, acilisIdx)) continue;
 
-                string tarihStr = s[0].Trim();
+                string tarihStr = s[tarihIdx].Trim();
                 DateTime tarih;
 
                 bool tarihOkundu = DateTime.TryParse(tarihStr, CultureInfo.InvariantCulture, DateTimeStyles.None, out tarih) ||
@@ -87,41 +113,21 @@ public class DataLoader
 
                 if (!tarihOkundu) continue;
 
-                string sembol = varsayilanSembol;
-                string fiyatStr = "";
-                string hacimStr = "";
+                decimal kapanisFiyat = TemizleVeParseEt(s[kapanisIdx]);
+                decimal acilisFiyat = acilisIdx != -1 ? TemizleVeParseEt(s[acilisIdx]) : kapanisFiyat;
 
-                if (sentetikFormatMi)
-                {
-                    sembol = s[1].Trim().ToUpper();
-                    fiyatStr = s[5].Trim();
-                    if (s.Length >= 7) hacimStr = s[6].Trim();
-                }
-                else
-                {
-                    fiyatStr = s[1].Trim();
-                    if (s.Length >= 6) hacimStr = s[5].Trim();
-                }
-
-                if (!decimal.TryParse(fiyatStr, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal kapanisFiyat))
-                {
-                    if (!decimal.TryParse(fiyatStr, NumberStyles.Any, new CultureInfo("tr-TR"), out kapanisFiyat))
-                        continue;
-                }
+                if (acilisFiyat <= 0m) acilisFiyat = kapanisFiyat;
 
                 decimal hacimSayi = 0m;
-                if (!string.IsNullOrEmpty(hacimStr))
+                if (hacimIdx != -1 && s.Length > hacimIdx)
                 {
+                    string hacimStr = s[hacimIdx].Trim();
                     decimal carpan = 1m;
                     if (hacimStr.EndsWith("M")) { carpan = 1000000m; hacimStr = hacimStr.TrimEnd('M'); }
                     else if (hacimStr.EndsWith("K")) { carpan = 1000m; hacimStr = hacimStr.TrimEnd('K'); }
                     else if (hacimStr.EndsWith("B")) { carpan = 1000000000m; hacimStr = hacimStr.TrimEnd('B'); }
-                    else if (hacimStr == "-") { hacimStr = "0"; }
 
-                    if (decimal.TryParse(hacimStr, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal h))
-                        hacimSayi = h * carpan;
-                    else if (decimal.TryParse(hacimStr, NumberStyles.Any, new CultureInfo("tr-TR"), out decimal hTr))
-                        hacimSayi = hTr * carpan;
+                    hacimSayi = TemizleVeParseEt(hacimStr) * carpan;
                 }
 
                 if (kapanisFiyat > 0m)
@@ -129,8 +135,9 @@ public class DataLoader
                     TumVeriler.Add(new StockData
                     {
                         Tarih = tarih,
-                        Sembol = sembol,
+                        Sembol = varsayilanSembol,
                         Kapanis = kapanisFiyat,
+                        Acilis = acilisFiyat,
                         Hacim = hacimSayi
                     });
                 }
@@ -155,18 +162,141 @@ public class DataLoader
             }
         }
     }
+
+    private string[] SplitCsvLine(string line, char delimiter)
+    {
+        List<string> result = new List<string>();
+        bool inQuotes = false;
+        string current = "";
+
+        foreach (char c in line)
+        {
+            if (c == '"')
+            {
+                inQuotes = !inQuotes;
+            }
+            else if (c == delimiter && !inQuotes)
+            {
+                result.Add(current.Trim());
+                current = "";
+            }
+            else
+            {
+                current += c;
+            }
+        }
+        result.Add(current.Trim());
+        return result.ToArray();
+    }
+
+    private decimal TemizleVeParseEt(string veri)
+    {
+        if (string.IsNullOrWhiteSpace(veri) || veri == "-") return 0m;
+
+        veri = veri.Trim().Replace("\"", "").Replace("TL", "").Replace("$", "").Replace("%", "");
+
+        if (veri.Contains(",") && !veri.Contains("."))
+        {
+            if (decimal.TryParse(veri, NumberStyles.Any, new CultureInfo("tr-TR"), out decimal trSonuc))
+                return trSonuc;
+        }
+
+        if (decimal.TryParse(veri, NumberStyles.Any, CultureInfo.InvariantCulture, out decimal sonuc))
+            return sonuc;
+
+        if (decimal.TryParse(veri, NumberStyles.Any, new CultureInfo("tr-TR"), out sonuc))
+            return sonuc;
+
+        return 0m;
+    }
 }
 
 // ==========================================
-// 3. CÜZDAN VE MULTI-ASSET BOT
-// ==========================================
+// 3. CÜZDAN VEYA SERMAYE YÖNETİCİSİ
 public class PortfolioManager
 {
     public decimal Bakiye { get; private set; }
+    public decimal ToplamYatirilanSermaye { get; private set; }
+    public decimal ToplamCekilenSermaye { get; private set; }
     public Dictionary<string, int> Lotlar = new Dictionary<string, int>();
     public Dictionary<string, decimal> Maliyetler = new Dictionary<string, decimal>();
+    public Dictionary<string, decimal> EnYuksekFiyatlar = new Dictionary<string, decimal>();
+    public List<decimal> IslemKarZararListesi = new List<decimal>();
 
-    public PortfolioManager(decimal b) { Bakiye = b; }
+    public PortfolioManager(decimal baslangic)
+    {
+        Bakiye = baslangic;
+        ToplamYatirilanSermaye = baslangic;
+        ToplamCekilenSermaye = 0m;
+    }
+
+    public void SermayeEkle(decimal miktar, DateTime tarih)
+    {
+        if (miktar <= 0) return;
+        Bakiye += miktar;
+        ToplamYatirilanSermaye += miktar;
+        Console.WriteLine($"   💵 [SERMAYE EKLEMESİ] {tarih:yyyy-MM-dd} | Kasaya +{miktar:N2} TL Yatırıldı | Güncel Kasa: {Bakiye:N2} TL");
+    }
+
+    public void SermayeCekAkilli(decimal miktar, DateTime tarih, List<StockData> oGununVerileri)
+    {
+        if (miktar <= 0) return;
+
+        // Kasada nakit yetersizse, kârda olan hisselerden satış yaparak nakit yarat!
+        if (Bakiye < miktar && Lotlar.Count > 0)
+        {
+            decimal eksikNakit = miktar - Bakiye;
+            Console.WriteLine($"   💡 [AKILLI NAKİT REBALANSI] {tarih:yyyy-MM-dd} | Çekim için {eksikNakit:N2} TL nakit yaratılıyor...");
+
+            var eldekiKardakiHisseler = Lotlar.Where(x => x.Value > 0)
+                .Select(x =>
+                {
+                    var gunVerisi = oGununVerileri?.FirstOrDefault(g => g.Sembol == x.Key);
+                    decimal sonFiyat = gunVerisi != null ? gunVerisi.Kapanis : (Maliyetler.ContainsKey(x.Key) ? Maliyetler[x.Key] : 0m);
+                    decimal maliyet = Maliyetler.ContainsKey(x.Key) ? Maliyetler[x.Key] : sonFiyat;
+                    decimal karOrani = maliyet > 0 ? (sonFiyat - maliyet) / maliyet : 0m;
+                    return new { Sembol = x.Key, Lot = x.Value, SonFiyat = sonFiyat, KarOrani = karOrani };
+                })
+                .OrderByDescending(x => x.KarOrani)
+                .ToList();
+
+            foreach (var h in eldekiKardakiHisseler)
+            {
+                if (Bakiye >= miktar) break;
+                if (h.SonFiyat <= 0) continue;
+
+                decimal gerekenKapanis = miktar - Bakiye;
+                int satilacakLot = (int)Math.Ceiling(gerekenKapanis / (h.SonFiyat * 0.999m));
+                satilacakLot = Math.Min(satilacakLot, h.Lot);
+
+                if (satilacakLot > 0)
+                {
+                    Sat(h.Sembol, h.SonFiyat, satilacakLot, tarih, $"🏧 Nakit Çekim Rebalansı (%{h.KarOrani * 100:F1} Kârda)");
+                }
+            }
+        }
+
+        SermayeCek(miktar, tarih);
+    }
+
+    public void SermayeCek(decimal miktar, DateTime tarih)
+    {
+        if (miktar <= 0) return;
+
+        if (Bakiye >= miktar)
+        {
+            Bakiye -= miktar;
+            ToplamCekilenSermaye += miktar;
+            Console.WriteLine($"   🏧 [AYLIK NAKİT ÇEKİMİ] {tarih:yyyy-MM-dd} | Kasadan -{miktar:N2} TL Çekildi | Kalan Kasa: {Bakiye:N2} TL | Toplam Çekilen: {ToplamCekilenSermaye:N2} TL");
+        }
+        else
+        {
+            decimal cekilen = Bakiye;
+            Bakiye = 0m;
+            ToplamCekilenSermaye += cekilen;
+            Console.WriteLine($"   ⚠️ [YETERSİZ NAKİT ÇEKİMİ] {tarih:yyyy-MM-dd} | İstenen: {miktar:N2} TL | Mevcut Nakit Çekildi: -{cekilen:N2} TL | Kasa Boşaldı!");
+        }
+    }
 
     public void Al(string sembol, decimal fiyat, int lot, DateTime tarih)
     {
@@ -189,8 +319,15 @@ public class PortfolioManager
                 Maliyetler[sembol] = fiyat;
             }
 
+            int eskiLot = Lotlar[sembol];
             Lotlar[sembol] += lot;
-            Console.WriteLine($"   [AL]  {tarih:yyyy-MM-dd} | {sembol,-10} | {lot,6} Lot | Fiyat: {fiyat,7:F2} | Maliyet: {Maliyetler[sembol],7:F2}");
+
+            if (eskiLot == 0 || !EnYuksekFiyatlar.ContainsKey(sembol) || fiyat > EnYuksekFiyatlar[sembol])
+            {
+                EnYuksekFiyatlar[sembol] = fiyat;
+            }
+
+            Console.WriteLine($"   [AL - T+1 Açılış] {tarih:yyyy-MM-dd} | {sembol,-10} | {lot,6} Lot | Fiyat: {fiyat,7:F2} | Maliyet: {Maliyetler[sembol],7:F2}");
         }
     }
 
@@ -198,10 +335,28 @@ public class PortfolioManager
     {
         if (lot <= 0 || fiyat <= 0m) return;
 
-        Bakiye += (fiyat * lot) * 0.999m;
+        if (Lotlar.ContainsKey(sembol) && lot > Lotlar[sembol])
+        {
+            lot = Lotlar[sembol];
+        }
+
+        decimal birimMaliyet = Maliyetler.ContainsKey(sembol) ? Maliyetler[sembol] : fiyat;
+        decimal netGelir = (fiyat * lot) * 0.999m;
+        decimal netMaliyet = (birimMaliyet * lot) * 1.001m;
+        decimal karZarar = netGelir - netMaliyet;
+
+        IslemKarZararListesi.Add(karZarar);
+
+        Bakiye += netGelir;
         Lotlar[sembol] -= lot;
-        if (Lotlar[sembol] <= 0) Maliyetler.Remove(sembol);
-        Console.WriteLine($"   [SAT] {tarih:yyyy-MM-dd} | {sembol,-10} | {lot,6} Lot | Fiyat: {fiyat,7:F2} | {t}");
+
+        if (Lotlar[sembol] <= 0)
+        {
+            Maliyetler.Remove(sembol);
+            EnYuksekFiyatlar.Remove(sembol);
+        }
+
+        Console.WriteLine($"   [SAT]             {tarih:yyyy-MM-dd} | {sembol,-10} | {lot,6} Lot | Fiyat: {fiyat,7:F2} | PnL: {(karZarar >= 0 ? "+" : "")}{karZarar:N2} TL | {t}");
     }
 }
 
@@ -212,6 +367,8 @@ public class TradingBot
     private VadeTuru _vade;
     private List<MacroEvent> _makro;
     private int _pencereGunSayisi;
+    private HashSet<string> _islenenSplitler = new HashSet<string>();
+    private Dictionary<string, DateTime> _sonStopTarihleri = new Dictionary<string, DateTime>();
 
     public TradingBot(PortfolioManager p, YatirimciTuru t, VadeTuru v, List<MacroEvent> m)
     {
@@ -270,63 +427,203 @@ public class TradingBot
         return 100m - (100m / (1m + rs));
     }
 
-    public void KararVer(List<StockData> tumGecmis, StockData bugun)
+    public decimal HesaplaEMA(List<StockData> hisseGecmisi, int periyot)
+    {
+        if (hisseGecmisi == null || hisseGecmisi.Count == 0) return 0m;
+        if (hisseGecmisi.Count < periyot) periyot = hisseGecmisi.Count;
+
+        decimal k = 2m / (periyot + 1);
+        decimal ema = hisseGecmisi.Take(periyot).Average(x => x.Kapanis);
+        foreach (var d in hisseGecmisi.Skip(periyot))
+        {
+            ema = (d.Kapanis * k) + (ema * (1m - k));
+        }
+        return ema;
+    }
+
+    public decimal HesaplaATR(List<StockData> hisseGecmisi, int periyot = 14)
+    {
+        if (hisseGecmisi == null || hisseGecmisi.Count <= 1) return 0m;
+        List<decimal> trList = new List<decimal>();
+        for (int i = 1; i < hisseGecmisi.Count; i++)
+        {
+            decimal tr = Math.Max(
+                Math.Abs(hisseGecmisi[i].Kapanis - hisseGecmisi[i].Acilis),
+                Math.Abs(hisseGecmisi[i].Kapanis - hisseGecmisi[i - 1].Kapanis)
+            );
+            trList.Add(tr);
+        }
+        if (trList.Count == 0) return 0m;
+        int p = Math.Min(periyot, trList.Count);
+        return trList.Skip(trList.Count - p).Average();
+    }
+
+    public void SatisKontroluVeZirveGuncelle(List<StockData> tumGecmis, StockData bugun)
     {
         if (bugun.Kapanis <= 0m) return;
 
         var hisseGecmisi = tumGecmis.Where(x => x.Sembol == bugun.Sembol && x.Kapanis > 0m).ToList();
+        int periyot = _tur == YatirimciTuru.Garantici ? 21 : (_tur == YatirimciTuru.Dengeli ? 14 : (_tur == YatirimciTuru.AgresifRiskli ? 9 : 20));
 
-        int periyot = _tur == YatirimciTuru.Garantici ? 21 : (_tur == YatirimciTuru.Dengeli ? 14 : 9);
-        decimal alEsik = _tur == YatirimciTuru.Garantici ? 40m : (_tur == YatirimciTuru.Dengeli ? 30m : 20m);
-        decimal satEsik = _tur == YatirimciTuru.Garantici ? 60m : (_tur == YatirimciTuru.Dengeli ? 70m : 80m);
-        decimal stopYuzdesi = _tur == YatirimciTuru.Garantici ? 0.02m : (_tur == YatirimciTuru.Dengeli ? 0.04m : 0.07m);
+        decimal atr = HesaplaATR(hisseGecmisi, 14);
+        decimal atrStopYuzdesi = (atr > 0m && bugun.Kapanis > 0m) ? (2.5m * atr / bugun.Kapanis) : 0.06m;
+
+        decimal stopYuzdesi = _tur == YatirimciTuru.Garantici ? 0.05m : (_tur == YatirimciTuru.Dengeli ? Math.Max(0.06m, atrStopYuzdesi) : Math.Max(0.09m, atrStopYuzdesi));
 
         if (hisseGecmisi.Count <= periyot) return;
-
         string anlikKarakter = HesaplaAnlikPiyasaKarakteri(hisseGecmisi);
 
-        if (anlikKarakter.Contains("Boğa"))
+        if (_cuzdan.Lotlar.ContainsKey(bugun.Sembol) && _cuzdan.Lotlar[bugun.Sembol] > 0)
         {
-            alEsik += 5m;
-            stopYuzdesi += 0.01m;
-        }
-        else if (anlikKarakter.Contains("Testere"))
-        {
-            alEsik -= 5m;
-            stopYuzdesi = Math.Max(0.015m, stopYuzdesi - 0.01m);
-        }
+            decimal alisFiyati = _cuzdan.Maliyetler.ContainsKey(bugun.Sembol) ? _cuzdan.Maliyetler[bugun.Sembol] : bugun.Kapanis;
 
-        if (_cuzdan.Lotlar.ContainsKey(bugun.Sembol) && _cuzdan.Lotlar[bugun.Sembol] > 0 && _cuzdan.Maliyetler.ContainsKey(bugun.Sembol))
-        {
-            decimal alinmaFiyati = _cuzdan.Maliyetler[bugun.Sembol];
-            if (bugun.Kapanis <= alinmaFiyati * (1 - stopYuzdesi))
+            // ✂️ AKILLI MALİYET BAZLI STOK SPLİT DÜZELTMESİ (%12+ Ham Veri Düzeltme Boşlukları Otomatik Revize Edilir)
+            if (alisFiyati > 0m && bugun.Kapanis < alisFiyati * 0.88m)
             {
-                _cuzdan.Sat(bugun.Sembol, bugun.Kapanis, _cuzdan.Lotlar[bugun.Sembol], bugun.Tarih, $"⚠️ DİNAMİK STOP-LOSS (%{stopYuzdesi * 100:F1})");
+                decimal splitOrani = alisFiyati / bugun.Kapanis;
+                int yeniLot = (int)Math.Round(_cuzdan.Lotlar[bugun.Sembol] * splitOrani);
+
+                _cuzdan.Maliyetler[bugun.Sembol] = bugun.Kapanis; // Maliyeti güncel fiyata uyarla
+                _cuzdan.EnYuksekFiyatlar[bugun.Sembol] = bugun.Kapanis; // Zirveyi resetle
+                _cuzdan.Lotlar[bugun.Sembol] = yeniLot;
+
+                Console.WriteLine($"   ✂️ [STOK SPLİT DÜZELTMESİ] {bugun.Tarih:yyyy-MM-dd} | {bugun.Sembol,-10} 1:{splitOrani:F2} Bölündü! Yeni Lot: {yeniLot}, Revize Maliyet: {bugun.Kapanis:F2} TL");
+
+                alisFiyati = bugun.Kapanis;
+            }
+
+            if (!_cuzdan.EnYuksekFiyatlar.ContainsKey(bugun.Sembol) || bugun.Kapanis > _cuzdan.EnYuksekFiyatlar[bugun.Sembol])
+            {
+                _cuzdan.EnYuksekFiyatlar[bugun.Sembol] = bugun.Kapanis;
+            }
+
+            decimal zirveFiyat = _cuzdan.EnYuksekFiyatlar[bugun.Sembol];
+            decimal ema20 = HesaplaEMA(hisseGecmisi, 20);
+            decimal ema50 = HesaplaEMA(hisseGecmisi, 50);
+
+            // 🎯 İKİ AŞAMALI PROFESYONEL TREND STOPU (ATR & EMA50 Bazlı Trend Sürme)
+            // 1. İlk Stop: Hissenin nefes almasına izin ver (-%15 / 3.5x ATR). Gürültüye ve veri boşluğuna teslim olma!
+            decimal ilkHardStop = Math.Min(alisFiyati * 0.85m, alisFiyati - (3.5m * (atr > 0 ? atr : alisFiyati * 0.03m)));
+
+            // 2. İzleyen Kâr Stopu: Hisse %10 prim yapınca aktifleşir, zirveden %15 sarkma veya EMA50 altı kapanış kârı alır.
+            decimal chandelierStop = zirveFiyat - (4.0m * (atr > 0 ? atr : zirveFiyat * 0.03m));
+            decimal trailingStop = zirveFiyat * 0.85m;
+            decimal nihaiStop = (zirveFiyat >= alisFiyati * 1.10m) ? Math.Max(trailingStop, chandelierStop) : ilkHardStop;
+
+            bool trendBitisSinyali = (zirveFiyat >= alisFiyati * 1.08m) && (bugun.Kapanis < ema50 && bugun.Kapanis < ema20);
+
+            if (bugun.Kapanis <= nihaiStop || trendBitisSinyali)
+            {
+                string etiket = (zirveFiyat >= alisFiyati * 1.08m)
+                    ? $"🎯 KÂR İZLEYEN STOP (Zirve: {zirveFiyat:F2} TL | Maliyet: {alisFiyati:F2} TL)"
+                    : $"🛡️ ATR KORUMA STOPU (Maliyet: {alisFiyati:F2} TL)";
+
+                _cuzdan.Sat(bugun.Sembol, bugun.Kapanis, _cuzdan.Lotlar[bugun.Sembol], bugun.Tarih, etiket);
+                _sonStopTarihleri[bugun.Sembol] = bugun.Tarih;
                 return;
             }
         }
+    }
 
-        decimal rsi = HesaplaRSI(hisseGecmisi, periyot);
-        decimal ortalamaHacim = hisseGecmisi.Skip(Math.Max(0, hisseGecmisi.Count - 10)).Take(10).Average(x => x.Hacim);
-        bool hacimOnayli = bugun.Hacim > ortalamaHacim || ortalamaHacim == 0;
+    public AlimAdayi AlimSinyaliVeSkorHesapla(List<StockData> tumGecmis, StockData bugun)
+    {
+        var hisseGecmisi = tumGecmis.Where(x => x.Sembol == bugun.Sembol && x.Kapanis > 0m).ToList();
+        if (hisseGecmisi == null || hisseGecmisi.Count < 20) return null;
 
-        int tolerans = _tur == YatirimciTuru.Riskli ? 3 : 2;
+        if (bugun.Kapanis <= 0m) return null;
+
+        int cooldownGun = _tur == YatirimciTuru.Garantici ? 5 : (_tur == YatirimciTuru.Dengeli ? 3 : 1);
+
+        if (_sonStopTarihleri.ContainsKey(bugun.Sembol))
+        {
+            double gecenGun = (bugun.Tarih - _sonStopTarihleri[bugun.Sembol]).TotalDays;
+            if (gecenGun < cooldownGun) return null;
+        }
+
+        var onceki20Gun = hisseGecmisi.Take(hisseGecmisi.Count - 1).Skip(Math.Max(0, hisseGecmisi.Count - 21)).Take(20).ToList();
+        if (onceki20Gun.Count < 10) return null;
+
+        decimal oncekiMax20GunFiyati = onceki20Gun.Max(x => x.Kapanis);
+
+        var son10Gun = onceki20Gun.Skip(Math.Max(0, onceki20Gun.Count - 10)).Take(10).ToList();
+        decimal ortalamaHacim = son10Gun.Count > 0 ? son10Gun.Average(x => x.Hacim) : 0m;
+
+        decimal hacimOrani = ortalamaHacim > 0 ? (bugun.Hacim / ortalamaHacim) : 1m;
+
+        int tolerans = _tur == YatirimciTuru.AgresifRiskli ? 3 : 2;
         bool riskli = _makro.Any(m => m.Tarih.Date == bugun.Tarih.Date && m.EtkiDerecesi >= tolerans);
 
-        if (rsi < alEsik && hacimOnayli && !riskli)
-        {
-            decimal ayrilacakButce = _cuzdan.Bakiye * 0.25m;
-            if (ayrilacakButce < bugun.Kapanis) ayrilacakButce = _cuzdan.Bakiye;
+        int periyot = _tur == YatirimciTuru.Garantici ? 21 : (_tur == YatirimciTuru.Dengeli ? 14 : 9);
+        decimal alEsik = _tur == YatirimciTuru.Garantici ? 38m : (_tur == YatirimciTuru.Dengeli ? 35m : 30m);
 
-            int alinacakLot = (int)Math.Floor(ayrilacakButce / (bugun.Kapanis * 1.001m));
-            if (alinacakLot > 0)
+        decimal rsi = HesaplaRSI(hisseGecmisi, periyot);
+        decimal ema20 = HesaplaEMA(hisseGecmisi, Math.Min(20, hisseGecmisi.Count));
+        decimal ema50 = HesaplaEMA(hisseGecmisi, Math.Min(50, hisseGecmisi.Count));
+        decimal ema200 = HesaplaEMA(hisseGecmisi, Math.Min(200, hisseGecmisi.Count));
+        decimal atr = HesaplaATR(hisseGecmisi, 14);
+
+        // 🎯 GÜÇLÜ TREND ALIMI: Zirve kırılımı VEYA teyitli boğa trendinde devam alımı!
+        bool donchianBreakout = bugun.Kapanis > oncekiMax20GunFiyati;
+        bool trendDevam = (ema20 >= ema50) && (bugun.Kapanis >= ema50 * 0.98m);
+        bool bogaTrendOnayi = (ema20 >= ema50) && (bugun.Kapanis >= ema50) && (ema200 == 0m || bugun.Kapanis >= ema200 * 0.95m);
+
+        if ((donchianBreakout || trendDevam) && bogaTrendOnayi && !riskli)
+        {
+            decimal breakoutSkoru = donchianBreakout ? 40m : 25m;
+            decimal hacimSkoru = Math.Min(hacimOrani * 20m, 40m);
+            decimal trendBonusu = (ema20 > ema50) ? 20m : 0m;
+
+            return new AlimAdayi
             {
-                _cuzdan.Al(bugun.Sembol, bugun.Kapanis, alinacakLot, bugun.Tarih);
+                GunVerisi = bugun,
+                RSI = rsi,
+                HacimOrani = hacimOrani,
+                ATR = atr,
+                EMA200 = ema200,
+                Skor = breakoutSkoru + hacimSkoru + trendBonusu
+            };
+        }
+
+        return null;
+    }
+
+    public void IslemYapTPlus1(BekleyenEmir emir, StockData bugunAcilisVerisi, List<StockData> tumGecmis)
+    {
+        decimal dunKapanis = emir.SinyalKapanisFiyati;
+        decimal bugunAcilis = bugunAcilisVerisi.Acilis > 0 ? bugunAcilisVerisi.Acilis : bugunAcilisVerisi.Kapanis;
+
+        var hisseGecmisi = tumGecmis.Where(x => x.Sembol == bugunAcilisVerisi.Sembol && x.Kapanis > 0m).ToList();
+        string anlikKarakter = HesaplaAnlikPiyasaKarakteri(hisseGecmisi);
+
+        decimal maxGapYuzdesi = anlikKarakter.Contains("Boğa") ? 2.00m : 1.05m;
+
+        if (bugunAcilis > dunKapanis * maxGapYuzdesi)
+        {
+            Console.WriteLine($"   [İPTAL - Gap Up] {bugunAcilisVerisi.Tarih:yyyy-MM-dd} | {emir.Aday.GunVerisi.Sembol,-10} | Dün: {dunKapanis:F2} -> Bugün Açılış: {bugunAcilis:F2}");
+            return;
+        }
+
+        // 🎯 RİSK TABANLI VE SERMAYE ETKİNLİKLİ POZİSYON BOYUTLANDIRMASI (Dengeli: %40, Agresif: %60 Katlama Bütçesi)
+        decimal eldekiHisseDegeri = 0m;
+        foreach (var lot in _cuzdan.Lotlar)
+        {
+            if (lot.Value > 0)
+            {
+                var sonH = tumGecmis.Where(x => x.Sembol == lot.Key).LastOrDefault();
+                decimal f = sonH != null ? sonH.Kapanis : (_cuzdan.Maliyetler.ContainsKey(lot.Key) ? _cuzdan.Maliyetler[lot.Key] : 0m);
+                eldekiHisseDegeri += lot.Value * f;
             }
         }
-        else if (rsi > satEsik && _cuzdan.Lotlar.ContainsKey(bugun.Sembol) && _cuzdan.Lotlar[bugun.Sembol] > 0)
+
+        decimal toplamVarlik = _cuzdan.Bakiye + eldekiHisseDegeri;
+        decimal maxPozisyonYuzdesi = _tur == YatirimciTuru.Garantici ? 0.25m : (_tur == YatirimciTuru.Dengeli ? 0.40m : 0.60m);
+        decimal maxPozisyonButcesi = toplamVarlik * maxPozisyonYuzdesi;
+        decimal ayrilacakButce = Math.Min(_cuzdan.Bakiye, maxPozisyonButcesi);
+
+        int alinacakLot = (int)Math.Floor(ayrilacakButce / (bugunAcilis * 1.001m));
+        if (alinacakLot > 0)
         {
-            _cuzdan.Sat(bugun.Sembol, bugun.Kapanis, _cuzdan.Lotlar[bugun.Sembol], bugun.Tarih, $"{_tur} Kâr Satışı ({anlikKarakter})");
+            _cuzdan.Al(emir.Aday.GunVerisi.Sembol, bugunAcilis, alinacakLot, bugunAcilisVerisi.Tarih);
         }
     }
 }
@@ -338,16 +635,14 @@ class Program
 {
     static void Main()
     {
-        Console.Title = "GravenAbyss - Multi-Asset Trading Motoru";
+        Console.Title = "GravenAbyss - Trend Hunter Engine";
 
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine("==========================================================================");
-        Console.WriteLine("    GRAVENABYSS MULTI-ASSET PAPER-TRADING ALGORİTMİK YATIRIM SİSTEMİ ");
+        Console.WriteLine("   🚀 GRAVENABYSS MULTI-ASSET PAPER-TRADING ALGORİTMİK YATIRIM SİSTEMİ ");
         Console.WriteLine("==========================================================================");
+        Console.WriteLine("   Sistem Başarıyla Başlatıldı. Hoş Geldiniz!");
         Console.ResetColor();
-
-        Console.Write("\n   Lütfen İsminizi Giriniz: ");
-        string kullaniciAdi = Console.ReadLine();
 
         string klasorYolu = "Veriler";
         DataLoader loader = new DataLoader();
@@ -363,143 +658,479 @@ class Program
             return;
         }
 
-        var hisseGruplari = loader.TumVeriler.GroupBy(x => x.Sembol).ToList();
-
-        Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.WriteLine("\n==========================================================================");
-        Console.WriteLine($"   PORTFÖYDEKİ HİSRELER VE 1 YILLIK (~250 İŞLEM GÜNÜ) PİYASA TÜRLERİ");
-        Console.WriteLine("==========================================================================");
-
-        TradingBot analizBotu = new TradingBot(new PortfolioManager(1000), YatirimciTuru.Dengeli, VadeTuru.OrtaVade, loader.MakroOlaylar);
-
-        foreach (var grup in hisseGruplari)
-        {
-            var hisseVerileri = grup.OrderBy(x => x.Tarih).ToList();
-            string birYillikTur = analizBotu.HesaplaAnlikPiyasaKarakteri(hisseVerileri, 250);
-
-            Console.WriteLine($"   ► Hisse Sembolü : {grup.Key,-10} | Toplam Veri: {hisseVerileri.Count,4} Gün | 1 Yıllık Piyasa Türü: {birYillikTur}");
-        }
-        Console.WriteLine("==========================================================================");
-        Console.ResetColor();
+        var simYillari = loader.TumVeriler.Select(x => x.Tarih.Year).Where(y => y >= 2025).Distinct().OrderBy(y => y).ToList();
+        if (simYillari.Count == 0) simYillari.Add(2025);
 
         bool devamEt = true;
 
         while (devamEt)
         {
-            Console.Write("\n   Başlangıç Bakiyesi Giriniz (TL): ");
-            decimal bakiye;
-            while (!decimal.TryParse(Console.ReadLine(), out bakiye) || bakiye <= 0)
-            {
-                Console.Write("   Lütfen geçerli bir bakiye giriniz (TL): ");
-            }
+            decimal bakiye = 0m;
+            decimal aylikEkleme = 0m;
+            decimal aylikCekim = 0m;
+            VadeTuru vade = VadeTuru.OrtaVade;
+            YatirimciTuru tur = YatirimciTuru.Dengeli;
+            bool parametrelerTamam = false;
 
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("\n   --- YATIRIM VADESİ SEÇİMİ ---");
-            Console.WriteLine("   [1] Kısa Vade (20 Günlük Rejim Analizi  ~ 1 Ay)");
-            Console.WriteLine("   [2] Orta Vade (60 Günlük Rejim Analizi  ~ 3 Ay - İdeal)");
-            Console.WriteLine("   [3] Uzun Vade (200 Günlük Rejim Analizi ~ 1 Yıl)");
-            Console.ResetColor();
-            Console.Write("   Seçiminiz: ");
-            int vadeSecim;
-            while (!int.TryParse(Console.ReadLine(), out vadeSecim) || vadeSecim < 1 || vadeSecim > 3)
+            while (!parametrelerTamam)
             {
-                Console.Write("   Lütfen 1, 2 veya 3 seçiniz: ");
-            }
-            VadeTuru vade = (VadeTuru)vadeSecim;
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine("\n==========================================================================");
+                Console.WriteLine("   ⚙️ SİMÜLASYON PARAMETRE EKRANI (İptal / Baştan Başlamak İçin: '0')");
+                Console.WriteLine("==========================================================================");
+                Console.ResetColor();
 
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("\n   --- STRATEJİ / RİSK PROFİLİ SEÇİMİ ---");
-            Console.WriteLine("   [1] Garantici Profil (RSI-21 | %2 Stop-Loss)");
-            Console.WriteLine("   [2] Dengeli Profil   (RSI-14 | %4 Stop-Loss)");
-            Console.WriteLine("   [3] Riskli Profil    (RSI-9  | %7 Stop-Loss)");
-            Console.ResetColor();
-            Console.Write("   Seçiminiz: ");
-            int turSecim;
-            while (!int.TryParse(Console.ReadLine(), out turSecim) || turSecim < 1 || turSecim > 3)
-            {
-                Console.Write("   Lütfen 1, 2 veya 3 seçiniz: ");
+                // 1. Başlangıç Bakiyesi
+                Console.Write("\n   ► Başlangıç Bakiyesi Giriniz (TL) [0: Sıfırla]: ");
+                string bakiyeGirdi = Console.ReadLine()?.Trim();
+                if (bakiyeGirdi == "0") continue;
+
+                while (!decimal.TryParse(bakiyeGirdi, out bakiye) || bakiye <= 0)
+                {
+                    Console.Write("   Lütfen geçerli bir bakiye giriniz (TL) [0: Sıfırla]: ");
+                    bakiyeGirdi = Console.ReadLine()?.Trim();
+                    if (bakiyeGirdi == "0") break;
+                }
+                if (bakiyeGirdi == "0") continue;
+
+                // 2. Nakit Akışı
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("\n   --- AYLIK NAKİT AKIŞI TERCİHİ ---");
+                Console.WriteLine("   [1] Her Ay Kasaya Para EKLE (Birikim Modu - DCA)");
+                Console.WriteLine("   [2] Her Ay Kasadan Para ÇEK  (Düzenli Gelir / Maaş Modu)");
+                Console.WriteLine("   [3] Sabit Bakiye (Ekleme / Çekme Yapma)");
+                Console.WriteLine("   [0] Baştan Başla / Geri Dön");
+                Console.ResetColor();
+                Console.Write("   Seçiminiz: ");
+                string akisGirdi = Console.ReadLine()?.Trim();
+                if (akisGirdi == "0") continue;
+
+                int akisSecim;
+                while (!int.TryParse(akisGirdi, out akisSecim) || akisSecim < 1 || akisSecim > 3)
+                {
+                    Console.Write("   Lütfen 1, 2 veya 3 seçiniz [0: Geri]: ");
+                    akisGirdi = Console.ReadLine()?.Trim();
+                    if (akisGirdi == "0") break;
+                }
+                if (akisGirdi == "0") continue;
+
+                aylikEkleme = 0m;
+                aylikCekim = 0m;
+
+                if (akisSecim == 1)
+                {
+                    Console.Write("   Her Ay Kasaya Eklenecek Miktar (TL) [0: Geri]: ");
+                    string eklemeGirdi = Console.ReadLine()?.Trim();
+                    if (eklemeGirdi == "0") continue;
+                    while (!decimal.TryParse(eklemeGirdi, out aylikEkleme) || aylikEkleme < 0)
+                    {
+                        Console.Write("   Geçerli bir miktar girin [0: Geri]: ");
+                        eklemeGirdi = Console.ReadLine()?.Trim();
+                        if (eklemeGirdi == "0") break;
+                    }
+                    if (eklemeGirdi == "0") continue;
+                }
+                else if (akisSecim == 2)
+                {
+                    Console.Write("   Her Ay Kasadan Çekilecek Miktar (TL) [0: Geri]: ");
+                    string cekimGirdi = Console.ReadLine()?.Trim();
+                    if (cekimGirdi == "0") continue;
+                    while (!decimal.TryParse(cekimGirdi, out aylikCekim) || aylikCekim < 0)
+                    {
+                        Console.Write("   Geçerli bir miktar girin [0: Geri]: ");
+                        cekimGirdi = Console.ReadLine()?.Trim();
+                        if (cekimGirdi == "0") break;
+                    }
+                    if (cekimGirdi == "0") continue;
+                }
+
+                // 3. Yatırım Vadesi
+                Console.ForegroundColor = ConsoleColor.Magenta;
+                Console.WriteLine("\n   --- YATIRIM VADESİ SEÇİMİ ---");
+                Console.WriteLine("   [1] Kısa Vade (20 Günlük Rejim Analizi  ~ 1 Ay)");
+                Console.WriteLine("   [2] Orta Vade (60 Günlük Rejim Analizi  ~ 3 Ay - İdeal)");
+                Console.WriteLine("   [3] Uzun Vade (200 Günlük Rejim Analizi ~ 1 Yıl)");
+                Console.WriteLine("   [0] Baştan Başla / Geri Dön");
+                Console.ResetColor();
+                Console.Write("   Seçiminiz: ");
+                string vadeGirdi = Console.ReadLine()?.Trim();
+                if (vadeGirdi == "0") continue;
+
+                int vadeSecim;
+                while (!int.TryParse(vadeGirdi, out vadeSecim) || vadeSecim < 1 || vadeSecim > 3)
+                {
+                    Console.Write("   Lütfen 1, 2 veya 3 seçiniz [0: Geri]: ");
+                    vadeGirdi = Console.ReadLine()?.Trim();
+                    if (vadeGirdi == "0") break;
+                }
+                if (vadeGirdi == "0") continue;
+                vade = (VadeTuru)vadeSecim;
+
+                // 4. Strateji / Risk Profili
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("\n   --- STRATEJİ / RİSK PROFİLİ VE BÜTÇE SEÇİMİ ---");
+                Console.WriteLine("   [1] Garantici Mod      (Bütçe: %25 | Stop: %4 | Defansif)");
+                Console.WriteLine("   [2] Dengeli Mod        (Bütçe: %50 | Stop: %8 | Optimum 🔥)");
+                Console.WriteLine("   [3] Agresif / Riskli   (Bütçe: %90 | Stop: %12 | MAKSİMUM KÂR & KATLAMA 🚀)");
+                Console.WriteLine("   [4] Bollinger Bantları (Alt Bant AL | Üst Bant SAT)");
+                Console.WriteLine("   [0] Baştan Başla / Geri Dön");
+                Console.ResetColor();
+                Console.Write("   Seçiminiz: ");
+                string turGirdi = Console.ReadLine()?.Trim();
+                if (turGirdi == "0") continue;
+
+                int turSecim;
+                while (!int.TryParse(turGirdi, out turSecim) || turSecim < 1 || turSecim > 4)
+                {
+                    Console.Write("   Lütfen 1, 2, 3 veya 4 seçiniz [0: Geri]: ");
+                    turGirdi = Console.ReadLine()?.Trim();
+                    if (turGirdi == "0") break;
+                }
+                if (turGirdi == "0") continue;
+                tur = (YatirimciTuru)turSecim;
+
+                parametrelerTamam = true;
             }
-            YatirimciTuru tur = (YatirimciTuru)turSecim;
 
             PortfolioManager cuzdan = new PortfolioManager(bakiye);
             TradingBot bot = new TradingBot(cuzdan, tur, vade, loader.MakroOlaylar);
 
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("\n==========================================================================");
-            Console.WriteLine($"   SEÇİLEN {vade.ToString().ToUpper()} VADEYE GÖRE HİSSELARİN ANLIK PİYASA TÜRLERİ");
-            Console.WriteLine("==========================================================================");
-            Console.ResetColor();
-
-            foreach (var grup in hisseGruplari)
-            {
-                var hisseVerileri = grup.OrderBy(x => x.Tarih).ToList();
-                string turMetni = bot.HesaplaAnlikPiyasaKarakteri(hisseVerileri);
-                Console.WriteLine($"   ► Hisse: {grup.Key,-10} | Seçilen Vade ({vade}) Analiz Türü: {turMetni}");
-            }
-            Console.WriteLine("==========================================================================");
-
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"\n   Sayın {kullaniciAdi}, {hisseGruplari.Count} Hisse Üzerinde Canlı Alım-Satım Simülasyonu Başlatılıyor...\n");
-            Console.ResetColor();
-
             List<StockData> akanGecmis = new List<StockData>();
-            var tumTarihler = loader.TumVeriler.Select(x => x.Tarih.Date).Distinct().OrderBy(t => t).ToList();
+            List<BekleyenEmir> bekleyenEmirler = new List<BekleyenEmir>();
+            List<decimal> gunlukPortfoyDegerleri = new List<decimal>();
 
-            foreach (var tarih in tumTarihler)
+            var secilenSemboller = new HashSet<string>();
+            int sonIslenenAy = -1;
+            decimal peakPortfoyVarligi = 0m;
+            int devreKesiciKalanGun = 0;
+            bool bastanBaslaGeri = false;
+
+            foreach (var simYili in simYillari)
             {
-                var oGununVerileri = loader.TumVeriler.Where(x => x.Tarih.Date == tarih).ToList();
+                if (bastanBaslaGeri) break;
 
-                foreach (var gunVerisi in oGununVerileri)
+                // YIL BAŞI HİSSE ANALİZİ VE İNTERAKTİF SEÇİM EKRANI
+                int analizYili = simYili - 1;
+                var gecmisYilVerileri = loader.TumVeriler.Where(x => x.Tarih.Year == analizYili).ToList();
+                var hisseGruplari = gecmisYilVerileri.GroupBy(x => x.Sembol).ToList();
+
+                if (hisseGruplari.Count > 0)
                 {
-                    bot.KararVer(akanGecmis, gunVerisi);
-                    akanGecmis.Add(gunVerisi);
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine("\n==========================================================================");
+                    Console.WriteLine($"   📁 {analizYili} YILI PERFORMANSINA GÖRE {hisseGruplari.Count} HİSSE ANALİZ EDİLİYOR...");
+                    Console.WriteLine("==========================================================================");
+
+                    var hisseSkorlari = new List<(string Sembol, decimal Getiri, decimal KompozitSkor, string Rejim)>();
+
+                    foreach (var grup in hisseGruplari)
+                    {
+                        var hisseVerileri = grup.OrderBy(x => x.Tarih).ToList();
+                        if (hisseVerileri.Count < 10) continue;
+
+                        decimal ilkFiyat = hisseVerileri.First().Kapanis;
+                        decimal sonFiyat = hisseVerileri.Last().Kapanis;
+                        decimal getiri = ilkFiyat > 0 ? ((sonFiyat - ilkFiyat) / ilkFiyat) * 100m : 0m;
+
+                        decimal zirve = 0m;
+                        decimal maxDD = 0m;
+                        int emaUzeriGun = 0;
+                        decimal ema50 = bot.HesaplaEMA(hisseVerileri, Math.Min(50, hisseVerileri.Count));
+
+                        foreach (var d in hisseVerileri)
+                        {
+                            if (d.Kapanis > zirve) zirve = d.Kapanis;
+                            decimal dd = zirve > 0 ? ((zirve - d.Kapanis) / zirve) * 100m : 0m;
+                            if (dd > maxDD) maxDD = dd;
+                            if (d.Kapanis >= ema50) emaUzeriGun++;
+                        }
+
+                        decimal trendKalmaOrani = (decimal)emaUzeriGun / Math.Max(1, hisseVerileri.Count);
+                        decimal kompozitSkor = (getiri * trendKalmaOrani) / Math.Max(1.0m, maxDD);
+                        string rejim = bot.HesaplaAnlikPiyasaKarakteri(hisseVerileri, 250);
+
+                        hisseSkorlari.Add((grup.Key, getiri, kompozitSkor, rejim));
+                    }
+
+                    var siraliHisseler = hisseSkorlari.OrderByDescending(x => x.KompozitSkor).ToList();
+
+                    for (int i = 0; i < siraliHisseler.Count; i++)
+                    {
+                        var h = siraliHisseler[i];
+                        Console.WriteLine($"   [{i + 1,2}] Sembol: {h.Sembol,-10} | {analizYili} Getiri: %{h.Getiri,6:F1} | Sağlık Skoru: {h.KompozitSkor,6:F2} | Rejim: {h.Rejim}");
+                    }
+                    Console.WriteLine("==========================================================================");
+                    Console.ResetColor();
+
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.WriteLine("\n   💡 ALGORİTMİK İPUCU: Sermayeyi katlamak için listelenen EN GÜÇLÜ 3 ila 5 hisseye odaklanmanız tavsiye edilir! (10+ hisse seçmek bütçeyi mikro lotlara böler)");
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.Write($"   ► {simYili} Yılı İçin {analizYili} Performansına Göre EN İYİ Kaç Hisse Seçilsin? (1 - {siraliHisseler.Count}) [Önerilen: 5] [0: Baştan Başla]: ");
+                    string hisseSayiGirdi = Console.ReadLine()?.Trim();
+                    if (hisseSayiGirdi == "0")
+                    {
+                        Console.WriteLine("   🔄 Parametre Seçim Ekranına Geri Dönülüyor...");
+                        bastanBaslaGeri = true;
+                        break;
+                    }
+
+                    int secilecekHisseSayisi;
+                    while (!int.TryParse(hisseSayiGirdi, out secilecekHisseSayisi) || secilecekHisseSayisi < 1 || secilecekHisseSayisi > siraliHisseler.Count)
+                    {
+                        Console.Write($"   Lütfen 1 ile {siraliHisseler.Count} arasında bir sayı giriniz [0: Baştan Başla]: ");
+                        hisseSayiGirdi = Console.ReadLine()?.Trim();
+                        if (hisseSayiGirdi == "0")
+                        {
+                            bastanBaslaGeri = true;
+                            break;
+                        }
+                    }
+                    if (bastanBaslaGeri) break;
+
+                    secilenSemboller = new HashSet<string>(siraliHisseler.Take(secilecekHisseSayisi).Select(x => x.Sembol));
+
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.WriteLine($"   ✅ {simYili} Yılı Portföyüne Alınan Hisseler ({secilenSemboller.Count} Adet): {string.Join(", ", secilenSemboller)}");
+                    Console.ResetColor();
+                }
+
+                // YIL BAŞI VARLIK VE NAKİT KAYDI
+                var yilVerileri = loader.TumVeriler.Where(x => x.Tarih.Year == simYili && secilenSemboller.Contains(x.Sembol)).ToList();
+                var yilTarihleri = yilVerileri.Select(x => x.Tarih.Date).Distinct().OrderBy(t => t).ToList();
+
+                decimal yilBaslangicVarlik = cuzdan.Bakiye;
+                foreach (var lot in cuzdan.Lotlar)
+                {
+                    if (lot.Value > 0)
+                    {
+                        var sonH = yilVerileri.FirstOrDefault(x => x.Sembol == lot.Key);
+                        decimal f = sonH != null ? sonH.Kapanis : (cuzdan.Maliyetler.ContainsKey(lot.Key) ? cuzdan.Maliyetler[lot.Key] : 0m);
+                        yilBaslangicVarlik += lot.Value * f;
+                    }
+                }
+                decimal yilBaslangicYatirilan = cuzdan.ToplamYatirilanSermaye;
+                decimal yilBaslangicCekilen = cuzdan.ToplamCekilenSermaye;
+                peakPortfoyVarligi = yilBaslangicVarlik;
+
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"\n   🚀 {simYili} YILI ALIM-SATIM SİMÜLASYONU BAŞLATILIYOR (Başlangıç Varlık: {yilBaslangicVarlik:N2} TL)...");
+                Console.ResetColor();
+
+                foreach (var tarih in yilTarihleri)
+                {
+                    var oGununVerileri = yilVerileri.Where(x => x.Tarih.Date == tarih).ToList();
+
+                    if (tarih.Month != sonIslenenAy)
+                    {
+                        if (sonIslenenAy != -1)
+                        {
+                            if (aylikEkleme > 0)
+                            {
+                                cuzdan.SermayeEkle(aylikEkleme, tarih);
+                                peakPortfoyVarligi += aylikEkleme;
+                            }
+                            if (aylikCekim > 0)
+                            {
+                                cuzdan.SermayeCekAkilli(aylikCekim, tarih, oGununVerileri);
+                                peakPortfoyVarligi = Math.Max(0m, peakPortfoyVarligi - aylikCekim);
+                            }
+                        }
+                        sonIslenenAy = tarih.Month;
+                    }
+
+                    // Anlık Portföy Değeri ve Devre Kesici Kontrolü
+                    decimal anlikHisseVarligi = 0m;
+                    foreach (var lot in cuzdan.Lotlar)
+                    {
+                        if (lot.Value > 0)
+                        {
+                            var hVeri = oGununVerileri.FirstOrDefault(x => x.Sembol == lot.Key);
+                            decimal f = hVeri != null ? hVeri.Kapanis : (cuzdan.Maliyetler.ContainsKey(lot.Key) ? cuzdan.Maliyetler[lot.Key] : 0m);
+                            anlikHisseVarligi += lot.Value * f;
+                        }
+                    }
+                    decimal anlikToplamPortfoy = cuzdan.Bakiye + anlikHisseVarligi;
+                    gunlukPortfoyDegerleri.Add(anlikToplamPortfoy);
+
+                    if (anlikToplamPortfoy > peakPortfoyVarligi) peakPortfoyVarligi = anlikToplamPortfoy;
+
+                    decimal anlikDrawdown = peakPortfoyVarligi > 0 ? (peakPortfoyVarligi - anlikToplamPortfoy) / peakPortfoyVarligi : 0m;
+
+                    // Risk takibi bireysel hisse bazlı Akıllı Stop ile sağlanır (Panik Satış Devre Kesicisi kaldırıldı)
+
+                    // 1. Bekleyen emirleri T+1 Açılış fiyatıyla çalıştır
+                    if (bekleyenEmirler.Count > 0)
+                    {
+                        var siraliEmirler = bekleyenEmirler.OrderByDescending(x => x.Aday.Skor).ToList();
+                        foreach (var emir in siraliEmirler)
+                        {
+                            var bugunHisseVerisi = oGununVerileri.FirstOrDefault(x => x.Sembol == emir.Aday.GunVerisi.Sembol);
+                            if (bugunHisseVerisi != null)
+                            {
+                                bot.IslemYapTPlus1(emir, bugunHisseVerisi, akanGecmis);
+                            }
+                        }
+                        bekleyenEmirler.Clear();
+                    }
+
+                    // 2. Satış ve Stop-Loss Kontrolleri
+                    foreach (var gunVerisi in oGununVerileri)
+                    {
+                        bot.SatisKontroluVeZirveGuncelle(akanGecmis, gunVerisi);
+                    }
+
+                    // 3. Sinyal Taraması (Devre Kesici Modunda Değilsek)
+                    if (devreKesiciKalanGun == 0)
+                    {
+                        foreach (var gunVerisi in oGununVerileri)
+                        {
+                            bool zatenVarMi = bekleyenEmirler.Any(x => x.Aday.GunVerisi.Sembol == gunVerisi.Sembol) ||
+                                               (cuzdan.Lotlar.ContainsKey(gunVerisi.Sembol) && cuzdan.Lotlar[gunVerisi.Sembol] > 0);
+
+                            if (!zatenVarMi)
+                            {
+                                var aday = bot.AlimSinyaliVeSkorHesapla(akanGecmis, gunVerisi);
+                                if (aday != null)
+                                {
+                                    bekleyenEmirler.Add(new BekleyenEmir
+                                    {
+                                        Aday = aday,
+                                        SinyalTarihi = gunVerisi.Tarih,
+                                        SinyalKapanisFiyati = gunVerisi.Kapanis
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    akanGecmis.AddRange(oGununVerileri);
+                }
+
+                // YIL SONU VARLIK VE FİNANSL RAPORU
+                decimal yilBitisHisseVarligi = 0m;
+                foreach (var lot in cuzdan.Lotlar)
+                {
+                    if (lot.Value > 0)
+                    {
+                        var sonHisse = yilVerileri.Where(x => x.Sembol == lot.Key).OrderBy(x => x.Tarih).LastOrDefault();
+                        decimal sonFiyat = sonHisse != null ? sonHisse.Kapanis : 0m;
+                        yilBitisHisseVarligi += lot.Value * sonFiyat;
+                    }
+                }
+                decimal yilBitisVarlik = cuzdan.Bakiye + yilBitisHisseVarligi;
+
+                decimal yilEklenenSermaye = cuzdan.ToplamYatirilanSermaye - yilBaslangicYatirilan;
+                decimal yilCekilenSermaye = cuzdan.ToplamCekilenSermaye - yilBaslangicCekilen;
+
+                decimal yilNetKazancTL = (yilBitisVarlik + yilCekilenSermaye) - (yilBaslangicVarlik + yilEklenenSermaye);
+                decimal yilKarYuzdesi = yilBaslangicVarlik > 0 ? (yilNetKazancTL / yilBaslangicVarlik) * 100m : 0m;
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("\n==========================================================================");
+                Console.WriteLine($"          🎉 {simYili} YILI FİNAL PERFORMANS VE KÂR RAPORU                 ");
+                Console.WriteLine("==========================================================================");
+                Console.ResetColor();
+
+                Console.WriteLine($"   ► {simYili} Yıl Başı Toplam Varlık : {yilBaslangicVarlik:N2} TL");
+                Console.WriteLine($"   ► {simYili} Yıl Sonu Toplam Varlık : {yilBitisVarlik:N2} TL");
+                if (yilEklenenSermaye > 0) Console.WriteLine($"   ► Bu Yıl Eklenen Sermaye      : +{yilEklenenSermaye:N2} TL");
+                if (yilCekilenSermaye > 0) Console.WriteLine($"   ► Bu Yıl Çekilen Geçim Parası : -{yilCekilenSermaye:N2} TL");
+                Console.WriteLine("   -----------------------------------------------------------------------");
+
+                if (yilNetKazancTL >= 0)
+                {
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"   ► {simYili} YIL NET KÂR (TL)         : +{yilNetKazancTL:N2} TL 🚀");
+                    Console.WriteLine($"   ► {simYili} YILLIK KÂR ORANI (%)      : %{yilKarYuzdesi:F2} Net Kâr 🔥");
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"   ► {simYili} YIL NET ZARAR (TL)       : {yilNetKazancTL:N2} TL 📉");
+                    Console.WriteLine($"   ► {simYili} YILLIK ZARAR ORANI (%)    : %{yilKarYuzdesi:F2} Zarar");
+                }
+                Console.ResetColor();
+                Console.WriteLine("==========================================================================");
+
+                // 🔄 YIL SONU PORTFÖY REBALANSI: Yeni yıl hisse seçimlerine geçmeden önce tüm hisseler kapanış fiyatıyla satılır
+                var sonGunVerileri = yilVerileri.Where(x => x.Tarih.Date == yilTarihleri.Last()).ToList();
+                foreach (var lot in cuzdan.Lotlar.ToList())
+                {
+                    if (lot.Value > 0)
+                    {
+                        var sonH = sonGunVerileri.FirstOrDefault(x => x.Sembol == lot.Key);
+                        decimal f = sonH != null ? sonH.Kapanis : (cuzdan.Maliyetler.ContainsKey(lot.Key) ? cuzdan.Maliyetler[lot.Key] : 0m);
+                        cuzdan.Sat(lot.Key, f, lot.Value, yilTarihleri.Last(), "🔄 Yıl Sonu Portföy Yeniden Dengeleme Ve Nakde Geçiş");
+                    }
                 }
             }
 
+            // TÜM YILLAR FİNAL GENEL RAPORU
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine("\n==========================================================================");
-            Console.WriteLine("                           SİMÜLASYON FİNAL BİLANÇOSU                     ");
+            Console.WriteLine("          🏆 ÇOKLU YIL TOPLAM SİMÜLASYON FİNAL BİLANÇOSU                 ");
             Console.WriteLine("==========================================================================");
             Console.ResetColor();
 
-            decimal toplamHisseDegeri = 0m;
+            decimal genelHisseDegeri = 0m;
             foreach (var lot in cuzdan.Lotlar)
             {
                 if (lot.Value > 0)
                 {
-                    var sonHisse = loader.TumVeriler.LastOrDefault(x => x.Sembol == lot.Key);
+                    var sonHisse = loader.TumVeriler.Where(x => x.Sembol == lot.Key).OrderBy(x => x.Tarih).LastOrDefault();
                     decimal sonFiyat = sonHisse != null ? sonHisse.Kapanis : 0m;
-                    toplamHisseDegeri += lot.Value * sonFiyat;
+                    genelHisseDegeri += lot.Value * sonFiyat;
                 }
             }
 
-            decimal toplamVarlik = cuzdan.Bakiye + toplamHisseDegeri;
-            decimal netDegisim = toplamVarlik - bakiye;
-            decimal yuzdeselDegisim = bakiye > 0 ? (netDegisim / bakiye) * 100m : 0m;
+            decimal genelVarlik = cuzdan.Bakiye + genelHisseDegeri;
+            decimal cebimizdenCikanPara = cuzdan.ToplamYatirilanSermaye;
+            decimal cebimizeGirenPara = cuzdan.ToplamCekilenSermaye;
+            decimal netFinansalSonuc = (genelVarlik + cebimizeGirenPara) - cebimizdenCikanPara;
+            decimal yuzdeselDegisim = cebimizdenCikanPara > 0 ? (netFinansalSonuc / cebimizdenCikanPara) * 100m : 0m;
 
-            Console.WriteLine($"   ► Operatör/Geliştirici : {kullaniciAdi}");
-            Console.WriteLine($"   ► İşlenen Hisse Sayısı : {hisseGruplari.Count} Adet");
-            Console.WriteLine($"   ► Seçilen Vade         : {vade} Analiz Modu");
-            Console.WriteLine($"   ► Seçilen Strateji     : {tur} Modu");
-            Console.WriteLine($"   ► Başlangıç Sermayesi  : {bakiye:N2} TL");
-            Console.WriteLine("   -----------------------------------------------------------------------");
-            Console.WriteLine($"   ► Kalan Nakit (Kasa)   : {cuzdan.Bakiye:N2} TL");
-            Console.WriteLine($"   ► Portföy Hisse Değeri : {toplamHisseDegeri:N2} TL");
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine($"   ► TOPLAM VARLIK        : {toplamVarlik:N2} TL");
-            Console.ResetColor();
+            decimal maxPortfoyDrawdown = 0m;
+            decimal zirveDeger = 0m;
+            foreach (var v in gunlukPortfoyDegerleri)
+            {
+                decimal dd = zirveDeger > 0 ? (zirveDeger - v) / zirveDeger * 100m : 0m;
+                if (dd > maxPortfoyDrawdown) maxPortfoyDrawdown = dd;
+            }
+
+            int kazanilanIslem = cuzdan.IslemKarZararListesi.Count(x => x > 0);
+            int toplamIslem = cuzdan.IslemKarZararListesi.Count;
+            decimal winRate = toplamIslem > 0 ? ((decimal)kazanilanIslem / toplamIslem) * 100m : 0m;
+
+            decimal toplamKar = cuzdan.IslemKarZararListesi.Where(x => x > 0).Sum();
+            decimal toplamZarar = Math.Abs(cuzdan.IslemKarZararListesi.Where(x => x < 0).Sum());
+            decimal profitFactor = toplamZarar > 0 ? (toplamKar / toplamZarar) : (toplamKar > 0 ? 99.9m : 0m);
+
+            Console.WriteLine($"   ► İlk Başlangıç Sermayesi         : {bakiye:N2} TL");
+            Console.WriteLine($"   ► Cebinizden Çıkan Toplam Sermaye: {cebimizdenCikanPara:N2} TL (DCA Paraları Dahil)");
+            if (cebimizeGirenPara > 0) Console.WriteLine($"   ► Kasadan Çekilen Geçim Parası   : +{cebimizeGirenPara:N2} TL");
+            Console.WriteLine($"   ► Kasada Kalan Nakit             : {cuzdan.Bakiye:N2} TL");
+            Console.WriteLine($"   ► Eldeki Portföy Hisse Değeri    : {genelHisseDegeri:N2} TL");
+            Console.WriteLine($"   ► FİNAL TOPLAM PORTFÖY DEĞERİ    : {genelVarlik:N2} TL");
             Console.WriteLine("   -----------------------------------------------------------------------");
 
-            if (netDegisim >= 0)
+            if (netFinansalSonuc >= 0)
             {
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"   ► NET PERFORMANS       : +{netDegisim:N2} TL (%{yuzdeselDegisim:F2} Kâr) 🚀");
+                Console.WriteLine($"   ► NET GENEL PERFORMANS       : +{netFinansalSonuc:N2} TL (%{yuzdeselDegisim:F2} Net Kâr) 🚀");
             }
             else
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"   ► NET PERFORMANS       : {netDegisim:N2} TL (%{yuzdeselDegisim:F2} Zarar) 📉");
+                Console.WriteLine($"   ► NET GENEL PERFORMANS       : {netFinansalSonuc:N2} TL (%{yuzdeselDegisim:F2} Zarar) 📉");
             }
+            Console.ResetColor();
+
+            Console.WriteLine("   -----------------------------------------------------------------------");
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("   📊 PERFORMANS ANALİTİĞİ VE BİLEŞİK GETİRİ METRİKLERİ:");
+            Console.WriteLine($"   ► Maksimum Portföy Gerilemesi (MDD) : -%{maxPortfoyDrawdown:F2}");
+            Console.WriteLine($"   ► Başarılı İşlem Oranı (Win Rate)  : %{winRate:F1} ({kazanilanIslem}/{toplamIslem} İşlem)");
+            Console.WriteLine($"   ► Kâr / Zarar Oranı (Profit Factor) : {profitFactor:F2}");
             Console.ResetColor();
 
             Console.ForegroundColor = ConsoleColor.Yellow;
