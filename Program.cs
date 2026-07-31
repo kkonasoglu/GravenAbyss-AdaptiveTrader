@@ -616,15 +616,15 @@ public class TradingBot
         decimal atr = HesaplaATR(hisseGecmisi, 14);
 
         string makroRejim = HesaplaAnlikPiyasaKarakteri(hisseGecmisi, _pencereGunSayisi);
-        bool testerePiyasasiMi = makroRejim.Contains("Testere");
+        bool bogaRejimMi = makroRejim.Contains("Boğa");
 
-        // 🎯 DISIPLINLI BOĞA TRENDİ: Fiyat kesinlikle EMA20, EMA50 ve EMA200 üzerinde olmalıdır!
+        // 🎯 DISIPLINLI BOĞA TRENDİ: Giriş sadece Boğa Piyasası Rejiminde yapılmalıdır (Yatay/Testere kırılımları elenir)!
         bool donchianBreakout = bugun.Kapanis > oncekiMax20GunFiyati;
         bool bogaTrendOnayi = (ema20 >= ema50) && (bugun.Kapanis >= ema20) && (bugun.Kapanis >= ema50) && (ema200 == 0m || bugun.Kapanis >= ema200);
         bool hacimOnayli = bugun.Hacim > ortalamaHacim || ortalamaHacim == 0m;
         bool rsiUygun = rsi <= 72m;
 
-        if (donchianBreakout && bogaTrendOnayi && hacimOnayli && rsiUygun && !riskliOlay && !testerePiyasasiMi)
+        if (donchianBreakout && bogaTrendOnayi && hacimOnayli && rsiUygun && !riskliOlay && bogaRejimMi)
         {
             decimal breakoutSkoru = 40m;
             decimal hacimSkoru = Math.Min(hacimOrani * 20m, 40m);
