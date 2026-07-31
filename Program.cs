@@ -6,24 +6,50 @@ using System.Linq;
 using System.Threading.Tasks;
 
 // ==========================================
-// 1. STRATEJİ VE VERİ MODELLERİ
+// 1. STRATEJİ VE VERİ MODELLERİ (ENUMS & DATA MODELS)
 // ==========================================
+
+/// <summary>
+/// Yatırımcının risk toleransını ve bütçe kullanım oranını belirleyen strateji modu.
+/// </summary>
 public enum YatirimciTuru
 {
+    /// <summary> Defansif Mod: Bütçe %35, Stop %4.0 - %5.0 </summary>
     Garantici = 1,
+
+    /// <summary> Dengeli Mod (Önerilen / BİST İdeal): Bütçe %70, Stop %7.0 - %10.0 </summary>
     Dengeli = 2,
+
+    /// <summary> Agresif Mod (ABD İdeal): Bütçe %90, Stop %8.5 - %15.0 </summary>
     AgresifRiskli = 3,
+
+    /// <summary> Bollinger Bantları Modu: Alt Bant AL, Üst Bant SAT </summary>
     BollingerBantlar = 4
 }
 
+/// <summary>
+/// İşlem yapılacak borsa ve piyasa türü.
+/// </summary>
 public enum PiyasaTuru
 {
+    /// <summary> Türkiye Borsa İstanbul (BİST - TL Cinsinden | Tavan/Taban Limitli 🇹🇷) </summary>
     TurkiyeBIST = 1,
+
+    /// <summary> Amerika Piyasası (NASDAQ / NYSE - Dolar Cinsinden | Yüksek Volatilite 🇺🇸) </summary>
     AmerikaUS = 2,
+
+    /// <summary> Tümü / Hibrit Portföy (Çoklu Piyasa Tarama 🌍) </summary>
     TumPiyasalar = 3
 }
+
+/// <summary>
+/// Trend rejim analizi için bakılacak pencere gün sayısı (Kısa: 20 Gün, Orta: 60 Gün, Uzun: 200 Gün).
+/// </summary>
 public enum VadeTuru { KisaVade = 1, OrtaVade = 2, UzunVade = 3 }
 
+/// <summary>
+/// Tek bir günlük hisse mum verisini (OHLCV) temsil eden veri modeli.
+/// </summary>
 public class StockData
 {
     public DateTime Tarih { get; set; }
@@ -34,12 +60,18 @@ public class StockData
     public PiyasaTuru Piyasa { get; set; } = PiyasaTuru.TumPiyasalar;
 }
 
+/// <summary>
+/// Makro ekonomik takvim veya kriz günlerini temsil eden veri modeli.
+/// </summary>
 public class MacroEvent
 {
     public DateTime Tarih { get; set; }
     public int EtkiDerecesi { get; set; }
 }
 
+/// <summary>
+/// Alım sinyali üreten ve skorlanan hisse adayını temsil eder.
+/// </summary>
 public class AlimAdayi
 {
     public StockData GunVerisi { get; set; }
@@ -50,6 +82,9 @@ public class AlimAdayi
     public decimal EMA200 { get; set; }
 }
 
+/// <summary>
+/// T günü kapanışında üretilip T+1 günü açılışında işlenecek bekleyen alım emri.
+/// </summary>
 public class BekleyenEmir
 {
     public AlimAdayi Aday { get; set; }
@@ -57,14 +92,19 @@ public class BekleyenEmir
     public decimal SinyalKapanisFiyati { get; set; }
 }
 
-// ==========================================
-// 2. KLASÖR TABANLI ÇOKLU VERİ YÜKLEYİCİ
-// ==========================================
+/// <summary>
+/// Çevrimdışı CSV hisse verilerini tarayan, ayrıştıran ve bellek içinde senkronize sıralayan veri yükleyici sınıf.
+/// </summary>
 public class DataLoader
 {
     public List<StockData> TumVeriler = new List<StockData>();
     public List<MacroEvent> MakroOlaylar = new List<MacroEvent>();
 
+    /// <summary>
+    /// Belirtilen klasör yolundaki tüm CSV dosyalarını okur, tarih/sayı formatlarını temizler ve kronolojik sıralar.
+    /// </summary>
+    /// <param name="klasorYolu">CSV dosyalarının arandığı hedef klasör (Veriler/)</param>
+    /// <param name="makroYolu">Sentetik makro takvim dosya yolu</param>
     public void KlasordekiTumVerileriOku(string klasorYolu, string makroYolu)
     {
         TumVeriler.Clear();
@@ -242,8 +282,9 @@ public class DataLoader
     }
 }
 
-// ==========================================
-// 3. CÜZDAN VEYA SERMAYE YÖNETİCİSİ
+/// <summary>
+/// Nakit bakiye, portföy hisse lotları, ortalama maliyetler ve kâr/zarar (PnL) kayıtlarını tutan cüzdan ve sermaye yöneticisi sınıf.
+/// </summary>
 public class PortfolioManager
 {
     public decimal Bakiye { get; private set; }
@@ -394,6 +435,9 @@ public class PortfolioManager
     }
 }
 
+/// <summary>
+/// Algoritmik alım-satım motoru, makro rejim sınıflandırıcısı, gösterge hesaplayıcısı ve risk yöneticisi sınıf.
+/// </summary>
 public class TradingBot
 {
     private PortfolioManager _cuzdan;
@@ -419,6 +463,12 @@ public class TradingBot
         _pencereGunSayisi = _vade == VadeTuru.KisaVade ? 20 : (_vade == VadeTuru.OrtaVade ? 60 : 200);
     }
 
+    /// <summary>
+    /// Hissenin pencere gün sayısı ve standart sapmasına bakarak piyasa rejimini ("Boğa Piyasası", "Testere Piyasası" veya "Sakin / Yatay Piyasa") hesaplar.
+    /// </summary>
+    /// <param name="hisseGecmisi">Geçmiş günlük mum verileri</param>
+    /// <param name="bakilacakGunSayisi">İncelenecek pencere boyutu</param>
+    /// <returns>Piyasa Rejim Etiketi</returns>
     public string HesaplaAnlikPiyasaKarakteri(List<StockData> hisseGecmisi, int bakilacakGunSayisi = 0)
     {
         var gecerliGecmis = hisseGecmisi?.Where(x => x.Kapanis > 0m).ToList();
@@ -446,6 +496,9 @@ public class TradingBot
         else
             return "Sakin / Yatay Piyasa";
     }
+    /// <summary>
+    /// Hissenin bağıl güç endeksini (RSI) periyot üzerinden hesaplar.
+    /// </summary>
     private decimal HesaplaRSI(List<StockData> hisseGecmisi, int periyot)
     {
         if (hisseGecmisi == null || hisseGecmisi.Count < periyot + 1) return 50m;
@@ -465,6 +518,9 @@ public class TradingBot
         return 100m - (100m / (1m + rs));
     }
 
+    /// <summary>
+    /// Hissenin üstel hareketli ortalamasını (EMA) hesaplar.
+    /// </summary>
     public decimal HesaplaEMA(List<StockData> hisseGecmisi, int periyot)
     {
         if (hisseGecmisi == null || hisseGecmisi.Count == 0) return 0m;
@@ -479,6 +535,9 @@ public class TradingBot
         return ema;
     }
 
+    /// <summary>
+    /// Hissenin ortalama gerçek aralık oynaklık değerini (ATR) hesaplar.
+    /// </summary>
     public decimal HesaplaATR(List<StockData> hisseGecmisi, int periyot = 14)
     {
         if (hisseGecmisi == null || hisseGecmisi.Count <= 1) return 0m;
@@ -496,6 +555,9 @@ public class TradingBot
         return trList.Skip(trList.Count - p).Average();
     }
 
+    /// <summary>
+    /// Açık pozisyondaki hissenin zirve fiyatını günceller, trailing stop, ATR kalkanı ve stok split kontrollerini yapar.
+    /// </summary>
     public void SatisKontroluVeZirveGuncelle(List<StockData> tumGecmis, StockData bugun)
     {
         if (bugun.Kapanis <= 0m) return;
@@ -581,6 +643,9 @@ public class TradingBot
         }
     }
 
+    /// <summary>
+    /// Donchian kırılımı, EMA Boğa Zırhı, hacim onayı, RSI seviyesi ve 2-stop karantina zırhını kontrol ederek alım adayı skoru üretir.
+    /// </summary>
     public AlimAdayi AlimSinyaliVeSkorHesapla(List<StockData> tumGecmis, StockData bugun)
     {
         var hisseGecmisi = tumGecmis.Where(x => x.Sembol == bugun.Sembol && x.Kapanis > 0m).ToList();
@@ -658,6 +723,9 @@ public class TradingBot
         return null;
     }
 
+    /// <summary>
+    /// T günü kapanışında üretilen sinyali T+1 günü açılış fiyatından emre dönüştürür. BİST +%9.5 tavan gap-up kalkanını denetler.
+    /// </summary>
     public void IslemYapTPlus1(BekleyenEmir emir, StockData bugunAcilisVerisi, List<StockData> tumGecmis)
     {
         decimal dunKapanis = emir.SinyalKapanisFiyati;
