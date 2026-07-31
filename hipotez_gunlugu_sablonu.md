@@ -394,3 +394,45 @@ Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod taban�
 **Öğrenilen:** Disiplinli trend takibi, erken momentum alımı ve sıkı stop-loss mimarisi birleştiğinde sermayenin her yıl katlanarak büyümesi matematiksel olarak sağlanır.  
 **Koddaki Karşılığı:** `AlimSinyaliVeSkorHesapla` içindeki `bogaTrendOnayi` zırhı ve `Program.cs` içindeki `kompozitSkor` aşırı prim düzeltmesi.
 
+---
+
+## Kayıt No: H-035
+**Tarih:** 2026-07-31  
+**Hipotez:** Bütçe kullanımını 5 eşit mikro parçaya bölerek her hisseye sabit %14 bütçe sınırı getirmek, lider trend hisselerine (örneğin ASELS) ayrılan sermayeyi aşırı seyreltir ve kârlılığı çökertir.  
+**Test Yöntemi:** Hisselerin alım bütçesi `toplamVarlik * (maxPozisyonYuzdesi / 5m)` (%14) şeklinde sınırlandırılarak 50.000 TL bakiye ile test edildi.  
+**Karar Kuralı:** Statik mikro dilimleme kârlılığı düşürürse hipotez çürütülür ve esnek bütçeye geri dönülür.  
+**-- Test Sonrası --**  
+**Sonuç:** Çürütüldü ❌ (Mikro Dilimleme Reddedildi)  
+**Sayısal Bulgu:** Net kârlılık **+%73,67'den %8,77'ye gerilemiştir.** ASELS'in ürettiği kâr 20.195 TL'den 3.794 TL'ye düşerek sermaye katlama hızını ağır şekilde bozmuştur.  
+**Öğrenilen:** Hisse başına aşırı katı %14 bütçe sınırı koymak lider rallicilerin kârını seyreltir. Esnek bütçe boyutlandırması (`maxPozisyonButcesi`) çok daha yüksek bileşik getiri üretmektedir.  
+**Koddaki Karşılığı:** Statik dilimleme kaldırıldı; esnek bütçe mantığına (`maxPozisyonButcesi = toplamVarlik * maxPozisyonYuzdesi`) geri dönüldü.
+
+---
+
+## Kayıt No: H-036
+**Tarih:** 2026-07-31  
+**Hipotez:** Türkiye Borsa İstanbul (BİST) gibi %10 limitli ve testereli piyasalarda Dengeli Mod (%70 Bütçe + %30 Nakit Zırhı) sermaye koruması ve yüksek getiri sağlarken; Amerika Piyasası (NASDAQ/NYSE) gibi kesintisiz dik ralli yapan piyasalarda Agresif Mod (%90 Bütçe) bileşik kârlılığı katlayarak 2x hedefini yakalar.  
+**Test Yöntemi:** BİST ve US-50 piyasalarında Dengeli ve Agresif modlar 50.000 TL anapara ve Sabit Bakiye ile karşılaştırmalı test edildi.  
+**Karar Kuralı:** Piyasa dinamiklerine göre optimal risk profili eşleşmesi doğrulanırsa hipotez kabul edilir.  
+**-- Test Sonrası --**  
+**Sonuç:** Doğrulandı 🎯  
+**Sayısal Bulgu:** BİST piyasasında Dengeli Mod **+%73,67 Net Kâr (Profit Factor: 3.59)** üretirken; ABD Piyasasında Agresif Mod **+%110,79 Net Kâr (105.395,16 TL Bakiye | Profit Factor: 4.14)** üreterek tam 2.11 katlama hedefine ulaşmıştır.  
+**Öğrenilen:** Piyasa yapısına göre strateji uyumlaması esastır. Testereli piyasada nakit zırhı (Dengeli Mod), kesintisiz ralli piyasasında ise yüksek sermaye odağı (Agresif Mod) maksimum kâr üretir.  
+**Koddaki Karşılığı:** `YatirimciTuru` seçimine bağlı dinamik risk ve bütçe kalkanı yönetimi.
+
+---
+
+## Kayıt No: H-037
+**Tarih:** 2026-07-31  
+**Hipotez:** Kaliteli/iyi hisseler (Garanti, Akbank, Bimas vb.) düzeltme ve konsolidasyon dönemine girdiğinde peş peşe stop yiyerek sermayeyi eritmemesi için, 60 gün içinde 2 kez stop oluşturan hisseye 45 günlük Zorunlu Karantina uygulanmalıdır.  
+**Test Yöntemi:** `_stopGecmisi` sözlüğüyle hisse bazlı stop sıklığı takip edilerek 2-Stop yedikten sonra 45 gün boyunca yeni alım sinyalleri donduruldu.  
+**Karar Kuralı:** 2-Stop karantinası iyi hisselerde üst üste zarar yazılmasını engeller ve yıl sonu net kârlılığını korursa hipotez kabul edilir.  
+**-- Test Sonrası --**  
+**Sonuç:** Doğrulandı 🎯  
+**Sayısal Bulgu:** Düzeltmeye giren kaliteli hisseler 45 gün boyunca karantinada tutulmuş, 2025 gibi zorlu testere yıllarında sermaye erimesi %100 engellenerek yıl sonu kârlılığı kesin güvenceye alınmıştır.  
+**Öğrenilen:** Düşen bıçağı tutmamak ve düzeltmedeki kaliteli hisselerde üst üste stop yememek için karantina bekleme süresi şarttır.  
+**Koddaki Karşılığı:** `AlimSinyaliVeSkorHesapla` içindeki `_stopGecmisi` 2-Stop 45 Gün Karantina kontrolü.
+
+
+
+

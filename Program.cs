@@ -405,6 +405,7 @@ public class TradingBot
     private HashSet<string> _islenenSplitler = new HashSet<string>();
     private Dictionary<string, DateTime> _sonStopTarihleri = new Dictionary<string, DateTime>();
     private Dictionary<string, DateTime> _sonSplitTarihleri = new Dictionary<string, DateTime>();
+    private Dictionary<string, List<DateTime>> _stopGecmisi = new Dictionary<string, List<DateTime>>();
 
     public TradingBot(PortfolioManager p, YatirimciTuru t, VadeTuru v, List<MacroEvent> m, PiyasaTuru piyasa = PiyasaTuru.TumPiyasalar)
     {
@@ -573,6 +574,8 @@ public class TradingBot
 
                 _cuzdan.Sat(bugun.Sembol, bugun.Kapanis, _cuzdan.Lotlar[bugun.Sembol], bugun.Tarih, etiket);
                 _sonStopTarihleri[bugun.Sembol] = bugun.Tarih;
+                if (!_stopGecmisi.ContainsKey(bugun.Sembol)) _stopGecmisi[bugun.Sembol] = new List<DateTime>();
+                _stopGecmisi[bugun.Sembol].Add(bugun.Tarih);
                 return;
             }
         }
@@ -591,6 +594,17 @@ public class TradingBot
         {
             double gecenGun = (bugun.Tarih - _sonStopTarihleri[bugun.Sembol]).TotalDays;
             if (gecenGun < cooldownGun) return null;
+        }
+
+        // 🛡️ İYİ HİSSE KORUMA ZIRHI: Son 60 günde 2 kez stop yiyen hisseye 45 gün zorunlu karantina uygulanır! (Yatayda batmayı engeller)
+        if (_stopGecmisi.ContainsKey(bugun.Sembol))
+        {
+            int son60GunStopCount = _stopGecmisi[bugun.Sembol].Count(t => (bugun.Tarih - t).TotalDays <= 60);
+            if (son60GunStopCount >= 2)
+            {
+                DateTime sonStopTarihi = _stopGecmisi[bugun.Sembol].Last();
+                if ((bugun.Tarih - sonStopTarihi).TotalDays < 45) return null;
+            }
         }
 
         var onceki20Gun = hisseGecmisi.Take(hisseGecmisi.Count - 1).Skip(Math.Max(0, hisseGecmisi.Count - 21)).Take(20).ToList();
@@ -675,6 +689,7 @@ public class TradingBot
             }
         }
         decimal toplamVarlik = _cuzdan.Bakiye + eldekiHisseDegeri;
+        // 🎯 RİSK TABANLI VE SERMAYE ETKİNLİKLİ POZİSYON BOYUTLANDIRMASI (Dengeli: %70, Agresif: %90 Bütçe)
         decimal maxPozisyonYuzdesi = _tur == YatirimciTuru.Garantici ? 0.35m : (_tur == YatirimciTuru.Dengeli ? 0.70m : 0.90m);
         decimal maxPozisyonButcesi = toplamVarlik * maxPozisyonYuzdesi;
         decimal ayrilacakButce = Math.Min(_cuzdan.Bakiye, maxPozisyonButcesi);
@@ -701,8 +716,48 @@ class Program
         Console.WriteLine("==========================================================================");
         Console.WriteLine("   🚀 GRAVENABYSS MULTI-ASSET PAPER-TRADING ALGORİTMİK YATIRIM SİSTEMİ ");
         Console.WriteLine("==========================================================================");
-        Console.WriteLine("   Sistem Başarıyla Başlatıldı. Hoş Geldiniz!");
         Console.ResetColor();
+
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine("\n   --- DİL SEÇİMİ / LANGUAGE SELECTION ---");
+        Console.WriteLine("   [1] Türkçe (TR 🇹🇷)");
+        Console.WriteLine("   [2] English (EN 🇬🇧)");
+        Console.ResetColor();
+        Console.Write("   Seçiminiz / Choose Language [1-2, Default: 1]: ");
+        string dilSecimGirdi = Console.ReadLine()?.Trim();
+        bool isEnglish = (dilSecimGirdi == "2");
+
+        if (isEnglish)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("   ✅ System Language Set to English (EN 🇬🇧)");
+            Console.ResetColor();
+
+            Console.ForegroundColor = ConsoleColor.Magenta;
+            Console.WriteLine("\n==========================================================================");
+            Console.WriteLine("   📌 IMPORTANT SYSTEM NOTICE & DATA REQUIREMENTS:");
+            Console.WriteLine("   1. This bot operates strictly on offline historical CSV market datasets.");
+            Console.WriteLine("   2. You MUST place valid stock data (.csv extension) inside the 'Veriler/' folder.");
+            Console.WriteLine("   3. CSV files must match the provided sample schema (Date, Open, High, Low, Close, Volume).");
+            Console.WriteLine("==========================================================================");
+            Console.ResetColor();
+        }
+        else
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("   ✅ Sistem Dili Türkçe Olarak Ayarlandı (TR 🇹🇷)");
+            Console.ResetColor();
+
+            Console.ForegroundColor = ConsoleColor.Magenta;
+            Console.WriteLine("\n==========================================================================");
+            Console.WriteLine("   📌 ÖNEMLİ SİSTEM UYARISI VE VERİ GEREKSİNİMİ:");
+            Console.WriteLine("   1. Bu bot tamamen indirilen geçmiş CSV piyasa verilerini okuyarak çalışır.");
+            Console.WriteLine("   2. Lütfen test edilecek hisse verilerinin (.csv uzantılı) 'Veriler/' klasöründe");
+            Console.WriteLine("      ve sistemde gönderilen örneklerle aynı formatta (Tarih, Açılış, Yüksek,");
+            Console.WriteLine("      Düşük, Kapanış, Hacim) bulunduğundan emin olunuz.");
+            Console.WriteLine("==========================================================================");
+            Console.ResetColor();
+        }
 
         string klasorYolu = "Veriler";
         DataLoader loader = new DataLoader();
@@ -713,10 +768,30 @@ class Program
 
         if (loader.TumVeriler.Count == 0)
         {
-            Console.WriteLine("\n⚠️ HATA: 'Veriler' klasörüne en az bir CSV dosyası atıp tekrar başlatın.");
+            Console.ForegroundColor = ConsoleColor.Red;
+            if (isEnglish)
+            {
+                Console.WriteLine("\n⚠️ ERROR: No CSV data files found inside 'Veriler/' directory!");
+                Console.WriteLine("   ► Please place your stock data files (.csv) formatted like the samples into 'Veriler/' folder.");
+                Console.WriteLine("   ► You can download historical daily data from Investing.com or Yahoo Finance in CSV format.");
+            }
+            else
+            {
+                Console.WriteLine("\n⚠️ HATA: 'Veriler/' klasöründe hiçbir CSV hisse verisi bulunamadı!");
+                Console.WriteLine("   ► Lütfen gönderilen örneklerle aynı formatta (.csv) hisse verilerinizi 'Veriler/' klasörüne atın.");
+                Console.WriteLine("   ► Investing.com veya Yahoo Finance üzerinden günlük CSV verisi indirip klasöre ekleyebilirsiniz.");
+            }
+            Console.ResetColor();
             Console.ReadLine();
             return;
         }
+
+        var yuklenenSemboller = loader.TumVeriler.Select(x => x.Sembol).Distinct().OrderBy(s => s).ToList();
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine(isEnglish 
+            ? $"\n   ✅ DATA SCAN COMPLETE: Successfully loaded {yuklenenSemboller.Count} stock CSV datasets ({string.Join(", ", yuklenenSemboller)})"
+            : $"\n   ✅ VERİ TARAMASI TAMAMLANDI: Toplam {yuklenenSemboller.Count} adet hisse CSV verisi başarıyla yüklendi ({string.Join(", ", yuklenenSemboller)})");
+        Console.ResetColor();
 
         var simYillari = loader.TumVeriler.Select(x => x.Tarih.Year).Where(y => y >= 2025).Distinct().OrderBy(y => y).ToList();
         if (simYillari.Count == 0) simYillari.Add(2025);
@@ -739,26 +814,27 @@ class Program
             {
                 Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.WriteLine("\n==========================================================================");
-                Console.WriteLine("   ⚙️ SİMÜLASYON PARAMETRE EKRANI (İptal / Baştan Başlamak İçin: '0')");
+                Console.WriteLine(isEnglish
+                    ? "   ⚙️ SIMULATION PARAMETER SCREEN (Enter '0' to Restart)"
+                    : "   ⚙️ SİMÜLASYON PARAMETRE EKRANI (İptal / Baştan Başlamak İçin: '0')");
                 Console.WriteLine("==========================================================================");
                 Console.ResetColor();
 
                 // 0. Borsa ve Piyasa Seçimi
                 Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("\n   --- BORSA VE PİYASA SEÇİMİ ---");
-                Console.WriteLine("   [1] Türkiye Borsa İstanbul (BİST - TL Cinsinden | Tavan/Taban Limitli 🇹🇷)");
-                Console.WriteLine("   [2] Amerika Piyasası (NASDAQ / NYSE - Dolar Cinsinden | Yüksek Volatilite 🇺🇸)");
-                Console.WriteLine("   [3] Tümü / Hibrit Portföy (Çoklu Piyasa Tarama 🌍)");
-                Console.WriteLine("   [0] Baştan Başla / Geri Dön");
+                Console.WriteLine(isEnglish ? "\n   --- EXCHANGE AND MARKET SELECTION ---" : "\n   --- BORSA VE PİYASA SEÇİMİ ---");
+                Console.WriteLine(isEnglish 
+                    ? "   [1] Turkey Borsa Istanbul (BİST - TRY | Daily ±10% Limits 🇹🇷)\n   [2] US Market (NASDAQ / NYSE - USD | High Volatility 🇺🇸)\n   [3] All / Hybrid Portfolio (Multi-Market Scan 🌍)\n   [0] Restart / Go Back"
+                    : "   [1] Türkiye Borsa İstanbul (BİST - TL Cinsinden | Tavan/Taban Limitli 🇹🇷)\n   [2] Amerika Piyasası (NASDAQ / NYSE - Dolar Cinsinden | Yüksek Volatilite 🇺🇸)\n   [3] Tümü / Hibrit Portföy (Çoklu Piyasa Tarama 🌍)\n   [0] Baştan Başla / Geri Dön");
                 Console.ResetColor();
-                Console.Write("   Seçiminiz: ");
+                Console.Write(isEnglish ? "   Your Choice: " : "   Seçiminiz: ");
                 string piyasaGirdi = Console.ReadLine()?.Trim();
                 if (piyasaGirdi == "0") continue;
 
                 int piyasaSecim;
                 while (!int.TryParse(piyasaGirdi, out piyasaSecim) || piyasaSecim < 1 || piyasaSecim > 3)
                 {
-                    Console.Write("   Lütfen 1, 2 veya 3 seçiniz [0: Geri]: ");
+                    Console.Write(isEnglish ? "   Please select 1, 2 or 3 [0: Back]: " : "   Lütfen 1, 2 veya 3 seçiniz [0: Geri]: ");
                     piyasaGirdi = Console.ReadLine()?.Trim();
                     if (piyasaGirdi == "0") break;
                 }
