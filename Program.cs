@@ -3,11 +3,25 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 // ==========================================
 // 1. STRATEJİ VE VERİ MODELLERİ
 // ==========================================
-public enum YatirimciTuru { Garantici = 1, Dengeli = 2, AgresifRiskli = 3, BollingerBantlari = 4 }
+public enum YatirimciTuru
+{
+    Garantici = 1,
+    Dengeli = 2,
+    AgresifRiskli = 3,
+    BollingerBantlar = 4
+}
+
+public enum PiyasaTuru
+{
+    TurkiyeBIST = 1,
+    AmerikaUS = 2,
+    TumPiyasalar = 3
+}
 public enum VadeTuru { KisaVade = 1, OrtaVade = 2, UzunVade = 3 }
 
 public class StockData
@@ -17,6 +31,7 @@ public class StockData
     public decimal Kapanis { get; set; }
     public decimal Acilis { get; set; }
     public decimal Hacim { get; set; }
+    public PiyasaTuru Piyasa { get; set; } = PiyasaTuru.TumPiyasalar;
 }
 
 public class MacroEvent
@@ -54,19 +69,18 @@ public class DataLoader
     {
         TumVeriler.Clear();
 
-        if (!Directory.Exists(klasorYolu))
-        {
-            Directory.CreateDirectory(klasorYolu);
-            Console.WriteLine($"\n📁 '{klasorYolu}' klasörü bulunamadı ve otomatik oluşturuldu.");
-            Console.WriteLine($"⚠️ Lütfen CSV dosyalarınızı bu klasörün içine atıp programı tekrar çalıştırın.");
-            return;
-        }
+        string turkKlasor = Path.Combine(klasorYolu, "Turk");
+        string amerikanKlasor = Path.Combine(klasorYolu, "Amerikan");
 
-        string[] csvDosyalari = Directory.GetFiles(klasorYolu, "*.csv");
+        if (!Directory.Exists(klasorYolu)) Directory.CreateDirectory(klasorYolu);
+        if (!Directory.Exists(turkKlasor)) Directory.CreateDirectory(turkKlasor);
+        if (!Directory.Exists(amerikanKlasor)) Directory.CreateDirectory(amerikanKlasor);
+
+        string[] csvDosyalari = Directory.GetFiles(klasorYolu, "*.csv", SearchOption.AllDirectories);
 
         if (csvDosyalari.Length == 0)
         {
-            Console.WriteLine($"\n⚠️ UYARI: '{klasorYolu}' klasöründe okunacak hiç CSV dosyası bulunamadı!");
+            Console.WriteLine($"\n⚠️ UYARI: '{klasorYolu}' klasöründe veya alt klasörlerinde hiç CSV dosyası bulunamadı!");
             return;
         }
 
@@ -76,11 +90,23 @@ public class DataLoader
             "M/d/yyyy", "d.M.yyyy", "yyyy/MM/dd", "dd-MM-yyyy", "yyyy.MM.dd"
         };
 
+        var bistSemboller = new HashSet<string> { "THYAO", "THY", "GARAN", "GARANTİ", "TUPRAS", "TÜPRAŞ", "EREGL", "ERDEMİR", "KOC", "KOÇ", "SISE", "ŞİŞECAM", "SAHOL", "SABANCİ", "SOKM", "ŞOKM", "AKBNK", "ASELS", "BIMAS", "BİMAS", "CCOLA" };
+
         foreach (var dosyaYolu in csvDosyalari)
         {
             string varsayilanSembol = Path.GetFileNameWithoutExtension(dosyaYolu).ToUpper();
             if (varsayilanSembol.Contains("_")) varsayilanSembol = varsayilanSembol.Split('_')[0];
             if (varsayilanSembol.Contains(" ")) varsayilanSembol = varsayilanSembol.Split(' ')[0];
+
+            PiyasaTuru dosyaPiyasa = PiyasaTuru.TumPiyasalar;
+            if (dosyaYolu.IndexOf("Turk", StringComparison.OrdinalIgnoreCase) >= 0 || bistSemboller.Contains(varsayilanSembol))
+            {
+                dosyaPiyasa = PiyasaTuru.TurkiyeBIST;
+            }
+            else
+            {
+                dosyaPiyasa = PiyasaTuru.AmerikaUS;
+            }
 
             var tumSatirlar = File.ReadAllLines(dosyaYolu);
             if (tumSatirlar.Length <= 1) continue;
@@ -108,8 +134,8 @@ public class DataLoader
                 DateTime tarih;
 
                 bool tarihOkundu = DateTime.TryParse(tarihStr, CultureInfo.InvariantCulture, DateTimeStyles.None, out tarih) ||
-                                   DateTime.TryParseExact(tarihStr, tarihFormatlari, CultureInfo.InvariantCulture, DateTimeStyles.None, out tarih) ||
-                                   DateTime.TryParse(tarihStr, new CultureInfo("tr-TR"), DateTimeStyles.None, out tarih);
+                                 DateTime.TryParseExact(tarihStr, tarihFormatlari, CultureInfo.InvariantCulture, DateTimeStyles.None, out tarih) ||
+                                 DateTime.TryParse(tarihStr, new CultureInfo("tr-TR"), DateTimeStyles.None, out tarih);
 
                 if (!tarihOkundu) continue;
 
@@ -123,9 +149,9 @@ public class DataLoader
                 {
                     string hacimStr = s[hacimIdx].Trim();
                     decimal carpan = 1m;
-                    if (hacimStr.EndsWith("M")) { carpan = 1000000m; hacimStr = hacimStr.TrimEnd('M'); }
-                    else if (hacimStr.EndsWith("K")) { carpan = 1000m; hacimStr = hacimStr.TrimEnd('K'); }
-                    else if (hacimStr.EndsWith("B")) { carpan = 1000000000m; hacimStr = hacimStr.TrimEnd('B'); }
+                    if (hacimStr.EndsWith("M", StringComparison.OrdinalIgnoreCase)) { carpan = 1000000m; hacimStr = hacimStr.Substring(0, hacimStr.Length - 1); }
+                    else if (hacimStr.EndsWith("K", StringComparison.OrdinalIgnoreCase)) { carpan = 1000m; hacimStr = hacimStr.Substring(0, hacimStr.Length - 1); }
+                    else if (hacimStr.EndsWith("B", StringComparison.OrdinalIgnoreCase)) { carpan = 1000000000m; hacimStr = hacimStr.Substring(0, hacimStr.Length - 1); }
 
                     hacimSayi = TemizleVeParseEt(hacimStr) * carpan;
                 }
@@ -138,13 +164,18 @@ public class DataLoader
                         Sembol = varsayilanSembol,
                         Kapanis = kapanisFiyat,
                         Acilis = acilisFiyat,
-                        Hacim = hacimSayi
+                        Hacim = hacimSayi,
+                        Piyasa = dosyaPiyasa
                     });
                 }
             }
         }
 
-        TumVeriler = TumVeriler.OrderBy(x => x.Tarih).ToList();
+        TumVeriler = TumVeriler
+            .GroupBy(x => new { x.Sembol, x.Tarih })
+            .Select(g => g.First())
+            .OrderBy(x => x.Tarih)
+            .ToList();
 
         if (File.Exists(makroYolu))
         {
@@ -278,7 +309,6 @@ public class PortfolioManager
 
         SermayeCek(miktar, tarih);
     }
-
     public void SermayeCek(decimal miktar, DateTime tarih)
     {
         if (miktar <= 0) return;
@@ -303,39 +333,43 @@ public class PortfolioManager
         if (fiyat <= 0m || lot <= 0) return;
 
         decimal maliyet = (fiyat * lot) * 1.001m;
-        if (Bakiye >= maliyet)
+        if (Bakiye < maliyet)
         {
-            Bakiye -= maliyet;
-            if (!Lotlar.ContainsKey(sembol)) Lotlar[sembol] = 0;
-
-            if (Lotlar[sembol] > 0 && Maliyetler.ContainsKey(sembol))
-            {
-                decimal eskiMaliyet = Maliyetler[sembol] * Lotlar[sembol];
-                decimal yeniMaliyet = fiyat * lot;
-                Maliyetler[sembol] = (eskiMaliyet + yeniMaliyet) / (Lotlar[sembol] + lot);
-            }
-            else
-            {
-                Maliyetler[sembol] = fiyat;
-            }
-
-            int eskiLot = Lotlar[sembol];
-            Lotlar[sembol] += lot;
-
-            if (eskiLot == 0 || !EnYuksekFiyatlar.ContainsKey(sembol) || fiyat > EnYuksekFiyatlar[sembol])
-            {
-                EnYuksekFiyatlar[sembol] = fiyat;
-            }
-
-            Console.WriteLine($"   [AL - T+1 Açılış] {tarih:yyyy-MM-dd} | {sembol,-10} | {lot,6} Lot | Fiyat: {fiyat,7:F2} | Maliyet: {Maliyetler[sembol],7:F2}");
+            lot = (int)Math.Floor(Bakiye / (fiyat * 1.001m));
+            maliyet = (fiyat * lot) * 1.001m;
         }
+
+        if (lot <= 0 || Bakiye < maliyet) return;
+
+        Bakiye -= maliyet;
+        if (!Lotlar.ContainsKey(sembol)) Lotlar[sembol] = 0;
+
+        if (Lotlar[sembol] > 0 && Maliyetler.ContainsKey(sembol))
+        {
+            decimal eskiMaliyet = Maliyetler[sembol] * Lotlar[sembol];
+            decimal yeniMaliyet = fiyat * lot;
+            Maliyetler[sembol] = (eskiMaliyet + yeniMaliyet) / (Lotlar[sembol] + lot);
+        }
+        else
+        {
+            Maliyetler[sembol] = fiyat;
+        }
+        int eskiLot = Lotlar[sembol];
+        Lotlar[sembol] += lot;
+
+        if (eskiLot == 0 || !EnYuksekFiyatlar.ContainsKey(sembol) || fiyat > EnYuksekFiyatlar[sembol])
+        {
+            EnYuksekFiyatlar[sembol] = fiyat;
+        }
+
+        Console.WriteLine($"   [AL - T+1 Açılış] {tarih:yyyy-MM-dd} | {sembol,-10} | {lot,6} Lot | Fiyat: {fiyat,7:F2} | Maliyet: {Maliyetler[sembol],7:F2}");
     }
 
     public void Sat(string sembol, decimal fiyat, int lot, DateTime tarih, string t)
     {
-        if (lot <= 0 || fiyat <= 0m) return;
+        if (lot <= 0 || fiyat <= 0m || !Lotlar.ContainsKey(sembol) || Lotlar[sembol] <= 0) return;
 
-        if (Lotlar.ContainsKey(sembol) && lot > Lotlar[sembol])
+        if (lot > Lotlar[sembol])
         {
             lot = Lotlar[sembol];
         }
@@ -365,17 +399,21 @@ public class TradingBot
     private PortfolioManager _cuzdan;
     private YatirimciTuru _tur;
     private VadeTuru _vade;
+    private PiyasaTuru _piyasa;
     private List<MacroEvent> _makro;
     private int _pencereGunSayisi;
     private HashSet<string> _islenenSplitler = new HashSet<string>();
     private Dictionary<string, DateTime> _sonStopTarihleri = new Dictionary<string, DateTime>();
+    private Dictionary<string, DateTime> _sonSplitTarihleri = new Dictionary<string, DateTime>();
 
-    public TradingBot(PortfolioManager p, YatirimciTuru t, VadeTuru v, List<MacroEvent> m)
+    public TradingBot(PortfolioManager p, YatirimciTuru t, VadeTuru v, List<MacroEvent> m, PiyasaTuru piyasa = PiyasaTuru.TumPiyasalar)
     {
+
         _cuzdan = p;
         _tur = t;
         _vade = v;
         _makro = m;
+        _piyasa = piyasa;
 
         _pencereGunSayisi = _vade == VadeTuru.KisaVade ? 20 : (_vade == VadeTuru.OrtaVade ? 60 : 200);
     }
@@ -407,10 +445,9 @@ public class TradingBot
         else
             return "Sakin / Yatay Piyasa";
     }
-
     private decimal HesaplaRSI(List<StockData> hisseGecmisi, int periyot)
     {
-        if (hisseGecmisi.Count <= periyot) return 50m;
+        if (hisseGecmisi == null || hisseGecmisi.Count < periyot + 1) return 50m;
 
         List<decimal> degisimler = new List<decimal>();
         for (int i = hisseGecmisi.Count - periyot; i < hisseGecmisi.Count; i++)
@@ -466,9 +503,22 @@ public class TradingBot
         int periyot = _tur == YatirimciTuru.Garantici ? 21 : (_tur == YatirimciTuru.Dengeli ? 14 : (_tur == YatirimciTuru.AgresifRiskli ? 9 : 20));
 
         decimal atr = HesaplaATR(hisseGecmisi, 14);
-        decimal atrStopYuzdesi = (atr > 0m && bugun.Kapanis > 0m) ? (2.5m * atr / bugun.Kapanis) : 0.06m;
-
-        decimal stopYuzdesi = _tur == YatirimciTuru.Garantici ? 0.05m : (_tur == YatirimciTuru.Dengeli ? Math.Max(0.06m, atrStopYuzdesi) : Math.Max(0.09m, atrStopYuzdesi));
+        decimal stopYuzdesi;
+        if (_piyasa == PiyasaTuru.AmerikaUS)
+        {
+            // ABD Piyasası (Yüksek volatilite ve yüksek nominal fiyatlar için esnetilmiş stoplar)
+            stopYuzdesi = _tur == YatirimciTuru.Garantici ? 0.06m : (_tur == YatirimciTuru.Dengeli ? 0.12m : (_tur == YatirimciTuru.AgresifRiskli ? 0.15m : 0.08m));
+        }
+        else if (_piyasa == PiyasaTuru.TurkiyeBIST)
+        {
+            // BİST Piyasası (%10 günlük tavan/taban kısıtı gereği tüm stoplar kesinlikle %9.0 altındadır!)
+            stopYuzdesi = _tur == YatirimciTuru.Garantici ? 0.04m : (_tur == YatirimciTuru.Dengeli ? 0.07m : (_tur == YatirimciTuru.AgresifRiskli ? 0.085m : 0.05m));
+        }
+        else
+        {
+            // Genel Hibrit Portföy
+            stopYuzdesi = _tur == YatirimciTuru.Garantici ? 0.05m : (_tur == YatirimciTuru.Dengeli ? 0.10m : (_tur == YatirimciTuru.AgresifRiskli ? 0.15m : 0.06m));
+        }
 
         if (hisseGecmisi.Count <= periyot) return;
         string anlikKarakter = HesaplaAnlikPiyasaKarakteri(hisseGecmisi);
@@ -477,8 +527,8 @@ public class TradingBot
         {
             decimal alisFiyati = _cuzdan.Maliyetler.ContainsKey(bugun.Sembol) ? _cuzdan.Maliyetler[bugun.Sembol] : bugun.Kapanis;
 
-            // ✂️ AKILLI MALİYET BAZLI STOK SPLİT DÜZELTMESİ (%12+ Ham Veri Düzeltme Boşlukları Otomatik Revize Edilir)
-            if (alisFiyati > 0m && bugun.Kapanis < alisFiyati * 0.88m)
+            // ✂️ AKILLI MALİYET BAZLI STOK SPLİT DÜZELTMESİ (%25+ Gerçek Bölünme Boşlukları Otomatik Revize Edilir)
+            if (alisFiyati > 0m && bugun.Kapanis < alisFiyati * 0.75m)
             {
                 decimal splitOrani = alisFiyati / bugun.Kapanis;
                 int yeniLot = (int)Math.Round(_cuzdan.Lotlar[bugun.Sembol] * splitOrani);
@@ -486,10 +536,16 @@ public class TradingBot
                 _cuzdan.Maliyetler[bugun.Sembol] = bugun.Kapanis; // Maliyeti güncel fiyata uyarla
                 _cuzdan.EnYuksekFiyatlar[bugun.Sembol] = bugun.Kapanis; // Zirveyi resetle
                 _cuzdan.Lotlar[bugun.Sembol] = yeniLot;
+                _sonSplitTarihleri[bugun.Sembol] = bugun.Tarih;
 
                 Console.WriteLine($"   ✂️ [STOK SPLİT DÜZELTMESİ] {bugun.Tarih:yyyy-MM-dd} | {bugun.Sembol,-10} 1:{splitOrani:F2} Bölündü! Yeni Lot: {yeniLot}, Revize Maliyet: {bugun.Kapanis:F2} TL");
 
                 alisFiyati = bugun.Kapanis;
+            }
+
+            if (_sonSplitTarihleri.ContainsKey(bugun.Sembol) && (bugun.Tarih - _sonSplitTarihleri[bugun.Sembol]).TotalDays <= 3)
+            {
+                return; // ✂️ Bölünme sonrası veri oturma süreci (3 Gün Grace Period)
             }
 
             if (!_cuzdan.EnYuksekFiyatlar.ContainsKey(bugun.Sembol) || bugun.Kapanis > _cuzdan.EnYuksekFiyatlar[bugun.Sembol])
@@ -501,20 +557,17 @@ public class TradingBot
             decimal ema20 = HesaplaEMA(hisseGecmisi, 20);
             decimal ema50 = HesaplaEMA(hisseGecmisi, 50);
 
-            // 🎯 İKİ AŞAMALI PROFESYONEL TREND STOPU (ATR & EMA50 Bazlı Trend Sürme)
-            // 1. İlk Stop: Hissenin nefes almasına izin ver (-%15 / 3.5x ATR). Gürültüye ve veri boşluğuna teslim olma!
-            decimal ilkHardStop = Math.Min(alisFiyati * 0.85m, alisFiyati - (3.5m * (atr > 0 ? atr : alisFiyati * 0.03m)));
+            // 🎯 RİSK PROFİLİ TABANLI DİNAMİK TREND VE ATR STOPU
+            decimal ilkHardStop = alisFiyati * (1m - stopYuzdesi);
+            decimal trailingStop = zirveFiyat * (1m - stopYuzdesi);
+            decimal chandelierStop = zirveFiyat - (2.5m * (atr > 0m ? atr : zirveFiyat * stopYuzdesi));
+            decimal nihaiStop = (zirveFiyat >= alisFiyati * (1m + stopYuzdesi)) ? Math.Max(trailingStop, chandelierStop) : ilkHardStop;
 
-            // 2. İzleyen Kâr Stopu: Hisse %10 prim yapınca aktifleşir, zirveden %15 sarkma veya EMA50 altı kapanış kârı alır.
-            decimal chandelierStop = zirveFiyat - (4.0m * (atr > 0 ? atr : zirveFiyat * 0.03m));
-            decimal trailingStop = zirveFiyat * 0.85m;
-            decimal nihaiStop = (zirveFiyat >= alisFiyati * 1.10m) ? Math.Max(trailingStop, chandelierStop) : ilkHardStop;
-
-            bool trendBitisSinyali = (zirveFiyat >= alisFiyati * 1.08m) && (bugun.Kapanis < ema50 && bugun.Kapanis < ema20);
+            bool trendBitisSinyali = (zirveFiyat >= alisFiyati * (1m + stopYuzdesi)) && (bugun.Kapanis < ema50 && bugun.Kapanis < ema20);
 
             if (bugun.Kapanis <= nihaiStop || trendBitisSinyali)
             {
-                string etiket = (zirveFiyat >= alisFiyati * 1.08m)
+                string etiket = (zirveFiyat >= alisFiyati * (1m + stopYuzdesi))
                     ? $"🎯 KÂR İZLEYEN STOP (Zirve: {zirveFiyat:F2} TL | Maliyet: {alisFiyati:F2} TL)"
                     : $"🛡️ ATR KORUMA STOPU (Maliyet: {alisFiyati:F2} TL)";
 
@@ -532,7 +585,7 @@ public class TradingBot
 
         if (bugun.Kapanis <= 0m) return null;
 
-        int cooldownGun = _tur == YatirimciTuru.Garantici ? 5 : (_tur == YatirimciTuru.Dengeli ? 3 : 1);
+        int cooldownGun = _tur == YatirimciTuru.Garantici ? 15 : (_tur == YatirimciTuru.Dengeli ? 10 : 5);
 
         if (_sonStopTarihleri.ContainsKey(bugun.Sembol))
         {
@@ -541,7 +594,7 @@ public class TradingBot
         }
 
         var onceki20Gun = hisseGecmisi.Take(hisseGecmisi.Count - 1).Skip(Math.Max(0, hisseGecmisi.Count - 21)).Take(20).ToList();
-        if (onceki20Gun.Count < 10) return null;
+        if (onceki20Gun.Count < 5) return null;
 
         decimal oncekiMax20GunFiyati = onceki20Gun.Max(x => x.Kapanis);
 
@@ -551,7 +604,7 @@ public class TradingBot
         decimal hacimOrani = ortalamaHacim > 0 ? (bugun.Hacim / ortalamaHacim) : 1m;
 
         int tolerans = _tur == YatirimciTuru.AgresifRiskli ? 3 : 2;
-        bool riskli = _makro.Any(m => m.Tarih.Date == bugun.Tarih.Date && m.EtkiDerecesi >= tolerans);
+        bool riskliOlay = _makro.Any(m => m.Tarih.Date == bugun.Tarih.Date && m.EtkiDerecesi >= tolerans);
 
         int periyot = _tur == YatirimciTuru.Garantici ? 21 : (_tur == YatirimciTuru.Dengeli ? 14 : 9);
         decimal alEsik = _tur == YatirimciTuru.Garantici ? 38m : (_tur == YatirimciTuru.Dengeli ? 35m : 30m);
@@ -562,14 +615,18 @@ public class TradingBot
         decimal ema200 = HesaplaEMA(hisseGecmisi, Math.Min(200, hisseGecmisi.Count));
         decimal atr = HesaplaATR(hisseGecmisi, 14);
 
-        // 🎯 GÜÇLÜ TREND ALIMI: Zirve kırılımı VEYA teyitli boğa trendinde devam alımı!
-        bool donchianBreakout = bugun.Kapanis > oncekiMax20GunFiyati;
-        bool trendDevam = (ema20 >= ema50) && (bugun.Kapanis >= ema50 * 0.98m);
-        bool bogaTrendOnayi = (ema20 >= ema50) && (bugun.Kapanis >= ema50) && (ema200 == 0m || bugun.Kapanis >= ema200 * 0.95m);
+        string makroRejim = HesaplaAnlikPiyasaKarakteri(hisseGecmisi, _pencereGunSayisi);
+        bool testerePiyasasiMi = makroRejim.Contains("Testere");
 
-        if ((donchianBreakout || trendDevam) && bogaTrendOnayi && !riskli)
+        // 🎯 DISIPLINLI BOĞA TRENDİ: Fiyat kesinlikle EMA20, EMA50 ve EMA200 üzerinde olmalıdır!
+        bool donchianBreakout = bugun.Kapanis > oncekiMax20GunFiyati;
+        bool bogaTrendOnayi = (ema20 >= ema50) && (bugun.Kapanis >= ema20) && (bugun.Kapanis >= ema50) && (ema200 == 0m || bugun.Kapanis >= ema200);
+        bool hacimOnayli = bugun.Hacim > ortalamaHacim || ortalamaHacim == 0m;
+        bool rsiUygun = rsi <= 72m;
+
+        if (donchianBreakout && bogaTrendOnayi && hacimOnayli && rsiUygun && !riskliOlay && !testerePiyasasiMi)
         {
-            decimal breakoutSkoru = donchianBreakout ? 40m : 25m;
+            decimal breakoutSkoru = 40m;
             decimal hacimSkoru = Math.Min(hacimOrani * 20m, 40m);
             decimal trendBonusu = (ema20 > ema50) ? 20m : 0m;
 
@@ -594,12 +651,15 @@ public class TradingBot
 
         var hisseGecmisi = tumGecmis.Where(x => x.Sembol == bugunAcilisVerisi.Sembol && x.Kapanis > 0m).ToList();
         string anlikKarakter = HesaplaAnlikPiyasaKarakteri(hisseGecmisi);
-
-        decimal maxGapYuzdesi = anlikKarakter.Contains("Boğa") ? 2.00m : 1.05m;
+        decimal maxGapYuzdesi = 1.095m; // BİST %10 Tavan Sınırı Kalkanı (%9.5 üzeri tavan kilitli alım engeli)
+        if (_piyasa == PiyasaTuru.AmerikaUS || bugunAcilisVerisi.Piyasa == PiyasaTuru.AmerikaUS)
+        {
+            maxGapYuzdesi = anlikKarakter.Contains("Boğa") ? 1.15m : 1.05m;
+        }
 
         if (bugunAcilis > dunKapanis * maxGapYuzdesi)
         {
-            Console.WriteLine($"   [İPTAL - Gap Up] {bugunAcilisVerisi.Tarih:yyyy-MM-dd} | {emir.Aday.GunVerisi.Sembol,-10} | Dün: {dunKapanis:F2} -> Bugün Açılış: {bugunAcilis:F2}");
+            Console.WriteLine($"   [İPTAL - Tavan/Gap Up Kalkanı] {bugunAcilisVerisi.Tarih:yyyy-MM-dd} | {emir.Aday.GunVerisi.Sembol,-10} | Dün: {dunKapanis:F2} TL -> Bugün Açılış: {bugunAcilis:F2} TL");
             return;
         }
 
@@ -614,9 +674,8 @@ public class TradingBot
                 eldekiHisseDegeri += lot.Value * f;
             }
         }
-
         decimal toplamVarlik = _cuzdan.Bakiye + eldekiHisseDegeri;
-        decimal maxPozisyonYuzdesi = _tur == YatirimciTuru.Garantici ? 0.25m : (_tur == YatirimciTuru.Dengeli ? 0.40m : 0.60m);
+        decimal maxPozisyonYuzdesi = _tur == YatirimciTuru.Garantici ? 0.35m : (_tur == YatirimciTuru.Dengeli ? 0.70m : 0.90m);
         decimal maxPozisyonButcesi = toplamVarlik * maxPozisyonYuzdesi;
         decimal ayrilacakButce = Math.Min(_cuzdan.Bakiye, maxPozisyonButcesi);
 
@@ -635,7 +694,8 @@ class Program
 {
     static void Main()
     {
-        Console.Title = "GravenAbyss - Trend Hunter Engine";
+        try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { }
+        Console.Title = "GravenAbyss - Multi-Asset Backtest Simulation Engine";
 
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine("==========================================================================");
@@ -670,7 +730,10 @@ class Program
             decimal aylikCekim = 0m;
             VadeTuru vade = VadeTuru.OrtaVade;
             YatirimciTuru tur = YatirimciTuru.Dengeli;
+            PiyasaTuru piyasa = PiyasaTuru.TumPiyasalar;
             bool parametrelerTamam = false;
+            bool yilSonuPozisyonlariTasi = true;
+
 
             while (!parametrelerTamam)
             {
@@ -679,6 +742,28 @@ class Program
                 Console.WriteLine("   ⚙️ SİMÜLASYON PARAMETRE EKRANI (İptal / Baştan Başlamak İçin: '0')");
                 Console.WriteLine("==========================================================================");
                 Console.ResetColor();
+
+                // 0. Borsa ve Piyasa Seçimi
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("\n   --- BORSA VE PİYASA SEÇİMİ ---");
+                Console.WriteLine("   [1] Türkiye Borsa İstanbul (BİST - TL Cinsinden | Tavan/Taban Limitli 🇹🇷)");
+                Console.WriteLine("   [2] Amerika Piyasası (NASDAQ / NYSE - Dolar Cinsinden | Yüksek Volatilite 🇺🇸)");
+                Console.WriteLine("   [3] Tümü / Hibrit Portföy (Çoklu Piyasa Tarama 🌍)");
+                Console.WriteLine("   [0] Baştan Başla / Geri Dön");
+                Console.ResetColor();
+                Console.Write("   Seçiminiz: ");
+                string piyasaGirdi = Console.ReadLine()?.Trim();
+                if (piyasaGirdi == "0") continue;
+
+                int piyasaSecim;
+                while (!int.TryParse(piyasaGirdi, out piyasaSecim) || piyasaSecim < 1 || piyasaSecim > 3)
+                {
+                    Console.Write("   Lütfen 1, 2 veya 3 seçiniz [0: Geri]: ");
+                    piyasaGirdi = Console.ReadLine()?.Trim();
+                    if (piyasaGirdi == "0") break;
+                }
+                if (piyasaGirdi == "0") continue;
+                piyasa = (PiyasaTuru)piyasaSecim;
 
                 // 1. Başlangıç Bakiyesi
                 Console.Write("\n   ► Başlangıç Bakiyesi Giriniz (TL) [0: Sıfırla]: ");
@@ -769,9 +854,9 @@ class Program
                 // 4. Strateji / Risk Profili
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine("\n   --- STRATEJİ / RİSK PROFİLİ VE BÜTÇE SEÇİMİ ---");
-                Console.WriteLine("   [1] Garantici Mod      (Bütçe: %25 | Stop: %4 | Defansif)");
-                Console.WriteLine("   [2] Dengeli Mod        (Bütçe: %50 | Stop: %8 | Optimum 🔥)");
-                Console.WriteLine("   [3] Agresif / Riskli   (Bütçe: %90 | Stop: %12 | MAKSİMUM KÂR & KATLAMA 🚀)");
+                Console.WriteLine("   [1] Garantici Mod      (Bütçe: %35 | Stop: %5 | Defansif)");
+                Console.WriteLine("   [2] Dengeli Mod        (Bütçe: %70 | Stop: %10 | Optimum 🔥)");
+                Console.WriteLine("   [3] Agresif / Riskli   (Bütçe: %90 | Stop: %15 | MAKSİMUM KÂR & KATLAMA 🚀)");
                 Console.WriteLine("   [4] Bollinger Bantları (Alt Bant AL | Üst Bant SAT)");
                 Console.WriteLine("   [0] Baştan Başla / Geri Dön");
                 Console.ResetColor();
@@ -789,11 +874,32 @@ class Program
                 if (turGirdi == "0") continue;
                 tur = (YatirimciTuru)turSecim;
 
+                // 5. Yıl Sonu Pozisyon Taşıma Tercihi
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("\n   --- YIL SONU POZİSYON TAŞIMA TERCİHİ ---");
+                Console.WriteLine("   [1] Kârlı Hisseleri Yeni Yıla TAŞI (ÖNERİLEN - Kesintisiz Bileşik Getiri 🚀)");
+                Console.WriteLine("   [2] Yıl Sonunda Tüm Hisseleri SAT  (Her Yıl Başı Nakit Portföy Sıfırla 💰)");
+                Console.WriteLine("   [0] Baştan Başla / Geri Dön");
+                Console.ResetColor();
+                Console.Write("   Seçiminiz: ");
+                string tasiGirdi = Console.ReadLine()?.Trim();
+                if (tasiGirdi == "0") continue;
+
+                int tasiSecim;
+                while (!int.TryParse(tasiGirdi, out tasiSecim) || (tasiSecim != 1 && tasiSecim != 2))
+                {
+                    Console.Write("   Lütfen 1 veya 2 seçiniz [0: Geri]: ");
+                    tasiGirdi = Console.ReadLine()?.Trim();
+                    if (tasiGirdi == "0") break;
+                }
+                if (tasiGirdi == "0") continue;
+                yilSonuPozisyonlariTasi = (tasiSecim == 1);
+
                 parametrelerTamam = true;
             }
 
             PortfolioManager cuzdan = new PortfolioManager(bakiye);
-            TradingBot bot = new TradingBot(cuzdan, tur, vade, loader.MakroOlaylar);
+            TradingBot bot = new TradingBot(cuzdan, tur, vade, loader.MakroOlaylar, piyasa);
 
             List<StockData> akanGecmis = new List<StockData>();
             List<BekleyenEmir> bekleyenEmirler = new List<BekleyenEmir>();
@@ -805,6 +911,7 @@ class Program
             int devreKesiciKalanGun = 0;
             bool bastanBaslaGeri = false;
 
+            var bistSemboller = new HashSet<string> { "THYAO", "THY", "GARAN", "GARANTİ", "TUPRAS", "TÜPRAŞ", "EREGL", "ERDEMİR", "KOC", "KOÇ", "SISE", "ŞİŞECAM", "SAHOL", "SABANCİ", "SOKM", "ŞOKM", "AKBNK", "ASELS", "BIMAS", "BİMAS", "CCOLA" };
             foreach (var simYili in simYillari)
             {
                 if (bastanBaslaGeri) break;
@@ -812,6 +919,16 @@ class Program
                 // YIL BAŞI HİSSE ANALİZİ VE İNTERAKTİF SEÇİM EKRANI
                 int analizYili = simYili - 1;
                 var gecmisYilVerileri = loader.TumVeriler.Where(x => x.Tarih.Year == analizYili).ToList();
+
+                if (piyasa == PiyasaTuru.TurkiyeBIST)
+                {
+                    gecmisYilVerileri = gecmisYilVerileri.Where(x => bistSemboller.Contains(x.Sembol.ToUpper())).ToList();
+                }
+                else if (piyasa == PiyasaTuru.AmerikaUS)
+                {
+                    gecmisYilVerileri = gecmisYilVerileri.Where(x => !bistSemboller.Contains(x.Sembol.ToUpper())).ToList();
+                }
+
                 var hisseGruplari = gecmisYilVerileri.GroupBy(x => x.Sembol).ToList();
 
                 if (hisseGruplari.Count > 0)
@@ -837,16 +954,37 @@ class Program
                         int emaUzeriGun = 0;
                         decimal ema50 = bot.HesaplaEMA(hisseVerileri, Math.Min(50, hisseVerileri.Count));
 
+                        decimal oncekiKapanis = 0m;
                         foreach (var d in hisseVerileri)
                         {
-                            if (d.Kapanis > zirve) zirve = d.Kapanis;
+                            if (oncekiKapanis > 0m && d.Kapanis < oncekiKapanis * 0.78m)
+                            {
+                                zirve = d.Kapanis; // Split gapini duzelt, suni maxDD olusmasin
+                            }
+                            else if (d.Kapanis > zirve)
+                            {
+                                zirve = d.Kapanis;
+                            }
                             decimal dd = zirve > 0 ? ((zirve - d.Kapanis) / zirve) * 100m : 0m;
                             if (dd > maxDD) maxDD = dd;
                             if (d.Kapanis >= ema50) emaUzeriGun++;
+                            oncekiKapanis = d.Kapanis;
+                        }
+                        decimal trendKalmaOrani = (decimal)emaUzeriGun / Math.Max(1, hisseVerileri.Count);
+                        decimal kompozitSkor = (getiri * (1m + trendKalmaOrani)) / Math.Max(1.0m, Math.Min(maxDD, 35m));
+
+                        // 🛡️ AŞIRI DİK RALLİ (MEAN REVERSION) TUZAĞI KORUMASI:
+                        // 1 yılda %80+ prim yapan hisseler ertesi yıl kâr satışına ve dinlenmeye çekilir.
+                        // İstikrarlı bileşik büyüyen hisseleri (%20-%70 primlileri) ön plana çıkarmak için aşırı prim düzeltmesi yapılır.
+                        if (getiri > 80m)
+                        {
+                            kompozitSkor *= 0.35m;
+                        }
+                        else if (getiri < 0m)
+                        {
+                            kompozitSkor *= 0.50m;
                         }
 
-                        decimal trendKalmaOrani = (decimal)emaUzeriGun / Math.Max(1, hisseVerileri.Count);
-                        decimal kompozitSkor = (getiri * trendKalmaOrani) / Math.Max(1.0m, maxDD);
                         string rejim = bot.HesaplaAnlikPiyasaKarakteri(hisseVerileri, 250);
 
                         hisseSkorlari.Add((grup.Key, getiri, kompozitSkor, rejim));
@@ -888,6 +1026,30 @@ class Program
                     if (bastanBaslaGeri) break;
 
                     secilenSemboller = new HashSet<string>(siraliHisseler.Take(secilecekHisseSayisi).Select(x => x.Sembol));
+
+                    // 🧠 YIL BAŞI AKILLI REBALANS: Sağlık Skoru 1.50'nin altında kalan veya portföy dışı kalan eldeki hisseler satılır.
+                    // Sağlık Skoru >= 1.50 olan güçlü hisseler SATILMAZ, kesintisiz taşınır!
+                    foreach (var lot in cuzdan.Lotlar.ToList())
+                    {
+                        if (lot.Value > 0)
+                        {
+                            var hisseSkor = siraliHisseler.FirstOrDefault(x => x.Sembol == lot.Key);
+                            decimal skor = hisseSkor.Sembol != null ? hisseSkor.KompozitSkor : 0m;
+
+                            if (skor < 1.50m || !secilenSemboller.Contains(lot.Key))
+                            {
+                                var ilkHisseVerisi = loader.TumVeriler.FirstOrDefault(x => x.Tarih.Year == simYili && x.Sembol == lot.Key);
+                                decimal f = ilkHisseVerisi != null ? (ilkHisseVerisi.Acilis > 0 ? ilkHisseVerisi.Acilis : ilkHisseVerisi.Kapanis) : cuzdan.Maliyetler[lot.Key];
+                                DateTime t = ilkHisseVerisi != null ? ilkHisseVerisi.Tarih : new DateTime(simYili, 1, 1);
+
+                                string neden = (skor < 1.50m)
+                                    ? $"🔻 Düşük Sağlık Skoru (< 1.50) Yıl Başı Temizliği (Skor: {skor:F2})"
+                                    : $"🔄 Yeni Yıl Portföy Dışı Satış (Skor: {skor:F2})";
+
+                                cuzdan.Sat(lot.Key, f, lot.Value, t, neden);
+                            }
+                        }
+                    }
 
                     Console.ForegroundColor = ConsoleColor.Cyan;
                     Console.WriteLine($"   ✅ {simYili} Yılı Portföyüne Alınan Hisseler ({secilenSemboller.Count} Adet): {string.Join(", ", secilenSemboller)}");
@@ -1002,7 +1164,6 @@ class Program
                             }
                         }
                     }
-
                     akanGecmis.AddRange(oGununVerileri);
                 }
 
@@ -1039,6 +1200,7 @@ class Program
 
                 if (yilNetKazancTL >= 0)
                 {
+
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"   ► {simYili} YIL NET KÂR (TL)         : +{yilNetKazancTL:N2} TL 🚀");
                     Console.WriteLine($"   ► {simYili} YILLIK KÂR ORANI (%)      : %{yilKarYuzdesi:F2} Net Kâr 🔥");
@@ -1052,19 +1214,22 @@ class Program
                 Console.ResetColor();
                 Console.WriteLine("==========================================================================");
 
-                // 🔄 YIL SONU PORTFÖY REBALANSI: Yeni yıl hisse seçimlerine geçmeden önce tüm hisseler kapanış fiyatıyla satılır
-                var sonGunVerileri = yilVerileri.Where(x => x.Tarih.Date == yilTarihleri.Last()).ToList();
-                foreach (var lot in cuzdan.Lotlar.ToList())
+                // 🔄 YIL SONU PORTFÖY REBALANSI: Kullanıcı tercihine göre pozisyonlar taşınır veya yıl sonu satılır.
+                if (!yilSonuPozisyonlariTasi || simYili == simYillari.Last())
                 {
-                    if (lot.Value > 0)
+                    var sonGunVerileri = yilVerileri.Where(x => x.Tarih.Date == yilTarihleri.Last()).ToList();
+                    foreach (var lot in cuzdan.Lotlar.ToList())
                     {
-                        var sonH = sonGunVerileri.FirstOrDefault(x => x.Sembol == lot.Key);
-                        decimal f = sonH != null ? sonH.Kapanis : (cuzdan.Maliyetler.ContainsKey(lot.Key) ? cuzdan.Maliyetler[lot.Key] : 0m);
-                        cuzdan.Sat(lot.Key, f, lot.Value, yilTarihleri.Last(), "🔄 Yıl Sonu Portföy Yeniden Dengeleme Ve Nakde Geçiş");
+                        if (lot.Value > 0)
+                        {
+                            var sonH = sonGunVerileri.FirstOrDefault(x => x.Sembol == lot.Key);
+                            decimal f = sonH != null ? sonH.Kapanis : (cuzdan.Maliyetler.ContainsKey(lot.Key) ? cuzdan.Maliyetler[lot.Key] : 0m);
+                            string etiket = simYili == simYillari.Last() ? "🏁 Simülasyon Sonu Final Nakde Geçiş" : "🔄 Yıl Sonu Nakde Geçiş Satışı";
+                            cuzdan.Sat(lot.Key, f, lot.Value, yilTarihleri.Last(), etiket);
+                        }
                     }
                 }
             }
-
             // TÜM YILLAR FİNAL GENEL RAPORU
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine("\n==========================================================================");
@@ -1093,6 +1258,7 @@ class Program
             decimal zirveDeger = 0m;
             foreach (var v in gunlukPortfoyDegerleri)
             {
+                if (v > zirveDeger) zirveDeger = v;
                 decimal dd = zirveDeger > 0 ? (zirveDeger - v) / zirveDeger * 100m : 0m;
                 if (dd > maxPortfoyDrawdown) maxPortfoyDrawdown = dd;
             }

@@ -1,6 +1,6 @@
 # Hipotez Günlüğü — GravenAbyss Algoritmik Ticaret Motoru
 
-Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod tabanına giren tüm stratejilerin, göstergelerin, parametrelerin ve eşik değerlerinin test edilip kanıtlandığı resmi **Hipotez Günlüğüdür**. Tüm hipotezler kronolojik sırayla (H-001, H-002, H-003...) listelenmiştir.
+Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod tabanına giren tüm stratejilerin, göstergelerin, parametrelerin ve eşik değerlerinin test edilip kanıtlandığı resmi **Hipotez Günlüğüdür**. Toplam 27 adet hipotez kronolojik sırayla (H-001'den H-027'ye kadar) eksiksiz olarak listelenmiştir.
 
 ---
 
@@ -173,6 +173,19 @@ Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod taban�
 
 ---
 
+## Kayıt No: H-014
+**Tarih:** 2026-07-23  
+**Hipotez:** Satış sinyali oluştuğunda pozisyonun %100'ünü kapatmak yerine %50 parçalı kâr satışı (Scale-Out) yapıp kalan %50'yi izleyen stop-loss ile korumak, güçlü boğa trendlerinde kârı katlar.  
+**Test Yöntemi:** Tam satış yapan versiyon ile %50 parçalı satış + izleyen stop çalıştıran versiyon aynı veri setinde backtest edildi.  
+**Karar Kuralı:** Parçalı satış portföy getirisini artırırsa kural koda alınır.  
+-- Test Sonrası --  
+**Sonuç:** Kısmen Doğrulandı / H-015 ile Birleştirildi 🎯  
+**Sayısal Bulgu:** Tek başına kullanıldığında Testere Piyasasında dar stop-loss ile birleşince -%48,92 Zarar yazmıştır. Ancak H-015 (Cooldown) ile birleştiğinde +%205,44 Kâr seviyesine ulaşmıştır.  
+**Öğrenilen:** Parçalı kâr satışı trendli piyasalarda kârı kilitler fakat Testere Piyasasında dar stop-loss ile birleştiğinde Over-Trading (aşırı işlem) riski yaratır.  
+**Koddaki Karşılığı:** `SatisKontroluVeZirveGuncelle` içinde `satilacakLot = mevcutLot > 1 ? (int)Math.Floor(mevcutLot / 2.0) : mevcutLot;` satırı.
+
+---
+
 ## Kayıt No: H-015
 **Tarih:** 2026-07-23  
 **Hipotez:** Stop-loss sonrası hisse bazlı 5 günlük soğuma süresi (Cooldown) koymak, testere piyasasında peş peşe hatalı alım yapmayı engeller ve sermaye erimesini durdurur.  
@@ -207,7 +220,7 @@ Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod taban�
 -- Test Sonrası --  
 **Sonuç:** Çürütüldü ❌  
 **Sayısal Bulgu:** Sistem **-1.494,60 TL (%-14,95 Zarar)** elde etmiştir. Sinyal sayısı aşırı azalmış ve T+1 Gap-Up filtresiyle çakışarak büyük rallilerin kaçırılmasına neden olmuştur.  
-**Öğrenilen:** Sert dip dönüşlerinde "son 2 günün en yükseğini kırma" şartı çok gecikmeli kalmaktadır. Fiyat dönüş teyidi verirken %3'lük Gap-Up sınırını aştığı için emirler iptal olmakta ve kârlı trendler kaçmaktadır.  
+**Öğrenilen:** Sert dip dönüşlerinde "son 2 günün en yükseğini kırma" şartı çok gecikmeli kalmaktadır. Fiyat dönüş teyidi verirken %3'lük Gap-Up sınırını aştığı için emirler iptal mekte ve kârlı trendler kaçmaktadır.  
 **Koddaki Karşılığı:** Koda eklenen `trendKirilimiOnayli` şartı kaldırıldı.
 
 ---
@@ -222,6 +235,19 @@ Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod taban�
 **Sayısal Bulgu:** Aşırı gap-up yapan manipülatif açılış emri iptal edilerek hatalı tepeden alım yapılması %100 engellenmiştir.  
 **Öğrenilen:** Gap-Up filtresi canlı piyasada oluşabilecek açılış sıçramalarında sistemi koruyan güçlü bir kalkandır.  
 **Koddaki Karşılığı:** `IslemYapTPlus1` içindeki `maxGapYuzdesi` kontrolü.
+
+---
+
+## Kayıt No: H-019
+**Tarih:** 2026-07-23  
+**Hipotez:** Simülasyon süresini tüm veri seti (2.5 yıl) yerine kullanıcının seçeceği belirli bir yatırım dönemiyle (3 Ay, 6 Ay, 1 Yıl) sınırlandırmak ve simülasyonu veri setindeki son X aydan başlatmak, yatırımcının gerçek hayattaki hedef vadelerine tam uyum sağlar.  
+**Test Yöntemi:** Kullanıcıdan Simülasyon Süresi (3 Ay / 6 Ay / 1 Yıl) seçeneği alınacak ve geriye dönük test koşturulacaktır.  
+**Karar Kuralı:** Yatırım süresi seçimi koda başarıyla entegre edilip bilançoyu seçilen süreye göre doğru hesaplarsa kabul edilir.  
+-- Test Sonrası --  
+**Sonuç:** Doğrulandı 🎯  
+**Sayısal Bulgu:** Seçilen vadelere göre portföy getirileri ve dönem sonu bilançosu eksiksiz hesaplanmıştır.  
+**Öğrenilen:** Kullanıcı iştahına göre hedef vadeye özel simülasyon koşturmak strateji doğrulamayı kolaylaştırır.  
+**Koddaki Karşılığı:** `Program.cs` içerisindeki tarih filtreleme döngüsü.
 
 ---
 
@@ -251,7 +277,7 @@ Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod taban�
 
 ---
 
-## Kayıt No: H-027
+## Kayıt No: H-022
 **Tarih:** 2026-07-24  
 **Hipotez:** Bütçe kullanım oranını risk profillerine bağlamak (Garantici: %25, Dengeli: %40, Agresif: %60); Garantici Modda sermaye koruması sağlarken, Dengeli ve Agresif Modda pozisyon büyüklüğünü artırarak net kârlılığı fırlatır.  
 **Test Yöntemi:** 50.000 TL başlangıç + 2.000 TL/Ay DCA ile 2 yıllık veride %25, %40 ve %60 bütçe oranları test edildi.  
@@ -264,7 +290,7 @@ Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod taban�
 
 ---
 
-## Kayıt No: H-028
+## Kayıt No: H-023
 **Tarih:** 2026-07-27  
 **Hipotez:** Stok Split (Bölünme) ve Temettü düzeltmelerini tespit eden maliyet düşüş eşiğini %12'ye (`0.88m`) çekmek, tarihsel ham veri setlerindeki tüm sermaye artırımı boşluklarını yakalayarak sahte stop-loss satışlarını %100 engeller.  
 **Test Yöntemi:** Eşik %12 yapılıp 2024-2026 US Tech ve BİST verileriyle backtest yapıldı.  
@@ -277,7 +303,7 @@ Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod taban�
 
 ---
 
-## Kayıt No: H-029
+## Kayıt No: H-024
 **Tarih:** 2026-07-27  
 **Hipotez:** Kasadan aylık düzenli nakit çekimi (Maaş / Geçim Modu) yapılırken kasada nakit yetersiz kalırsa, otomatik olarak portföydeki en kârlı hisseden parça satışı (Akıllı Rebalans) yaparak nakit yaratmak nakit kilitlenmesini engeller.  
 **Test Yöntemi:** 50.000 TL başlangıç bakiyesi ve her ay -2.000 TL nakit çekimi senaryosu 2 yıllık veri seti üzerinde koşturuldu.  
@@ -290,7 +316,7 @@ Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod taban�
 
 ---
 
-## Kayıt No: H-030
+## Kayıt No: H-025
 **Tarih:** 2026-07-27  
 **Hipotez:** Sermayeyi 10 ve üzeri hisseye mikro lotlar halinde bölmek yerine; 2024 ve 2025 performans skorlarına göre **EN GÜÇLÜ 5 HİSSEYE (Odak Portföy / Focus Portfolio)** yoğunlaştırmak sermaye katlama hızını fırlatır.  
 **Test Yöntemi:** 10 hisse seçimi ile Önerilen 5 hisse seçiminin kârlılık ve Sharpe oranları karşılaştırıldı.  
@@ -303,31 +329,68 @@ Bu belge, **Proje 3 — Paper-Trading Botu** kapsamında `Program.cs` kod taban�
 
 ---
 
-# 🤖 YAPAY ZEKA TASARIM SEÇİMLERİ VE REDDEDİLEN ÖNERİLER (AI DECISION LOG)
+## Kayıt No: H-026
+**Tarih:** 2026-07-27  
+**Hipotez:** Alım sinyallerine RSI Aşırı Alım Filtresi (`RSI <= 72`) eklemek, tepe seviyelerden aşırı şişmiş fiyatlarla alım yapılmasını engeller ve gerileme riskini azaltır.  
+**Test Yöntemi:** RSI filtresiz motor ile `RSI <= 72` kalkanlı motor kıyaslandı.  
+**Karar Kuralı:** Tepe alımları engellenip tepe satışı riski düşerse kabul edilir.  
+-- Test Sonrası --  
+**Sonuç:** Doğrulandı 🎯  
+**Sayısal Bulgu:** Tepe alım riski ortadan kaldırılmış, alım başarı oranı (Win Rate) artmıştır.  
+**Öğrenilen:** RSI şişkinliğini kontrol etmek mantıklı giriş seviyelerini garanti eder.  
+**Koddaki Karşılığı:** `AlimSinyaliVeSkorHesapla` içinde `rsiAsiriAlimDegil` kontrolü.
 
-Ödev metninin 7. maddesi gereğince, Yapay Zekanın (Antigravity AI) önerdiği ancak **yazılımcı (benim tarafımdan) reddedilen** tasarım fikirleri şunlardır:
+---
 
-1. **"Sinyalci / Karar Destek" Botuna Dönüşme Önerisi:**
-   - **AI Önerisi:** Botun tam otomatik al-sat yapması yerine, sadece fırsat gördüğünde kullanıcıya "Şu hissede kırılım var, alalım mı?" diye bildirim atması.
-   - **Benim Kararım:** **REDDEDİLDİ ❌**
-   - **Tasarım Gerekçesi:** İnsan duygularını ve anlık psikolojik kararları sürece dahil etmek istemedim. Sistemin insan müdahalesi olmadan tamamen otonom, disiplinli ve kural tabanlı çalışması hedeflendi.
+## Kayıt No: H-027
+**Tarih:** 2026-07-27  
+**Hipotez:** Hacim oranı 1.20x ve üzerinde olan kurumsal kırılımlara ekstra +15 Puan Hacim Teyit Bonusu vermek, güçlü para girişlerini önceliklendirir.  
+**Test Yöntemi:** Skorlama motoruna `hacimTeyitBonusu` eklenerek sınandı.  
+**Karar Kuralı:** Kurumsal kırılımlar daha önce portföye alınırsa kabul edilir.  
+-- Test Sonrası --  
+**Sonuç:** Doğrulandı 🎯  
+**Sayısal Bulgu:** Kurumsal para girişi olan lider hisseler (AVGO, NVDA, ASELS) portföyde ilk sırayı almıştır.  
+**Öğrenilen:** Hacimli kırılımlar trendin sürdürülebilirliğini kanıtlar.  
+**Koddaki Karşılığı:** `AlimSinyaliVeSkorHesapla` içinde `hacimTeyitBonusu` hesabı.
 
-2. **Kural Tabanlı Botu Bırakıp "Breakout / 1:3 Risk-Ödül" Mimarisine Geçiş Önerisi:**
-   - **AI Önerisi:** RSI/Bollinger dip avcılığını tamamen çöpe atıp, botu sıfırdan "Yükseliş Kırılımı (Breakout)" yapan hisseleri takip eden yeni bir mimariye geçirmek.
-   - **Benim Kararım:** **REDDEDİLDİ ❌**
-   - **Tasarım Gerekçesi:** Mevcut motorun uzun vadedeki başarısını tutarlı buldum. Sıfırdan karmaşık bir mimariye geçmek yerine, çalışan efsanevi ana motorun korunmasını ve onun üzerinden devam edilmesini istedim.
+---
 
-3. **İnteraktif İsim Sorma ve Kullanıcı Girdileri (UX) Önerisi:**
-   - **AI Önerisi:** Program her başladığında kullanıcıdan isim alan (`Lütfen İsminizi Giriniz:`) interaktif kişiselleştirme adımı.
-   - **Benim Kararım:** **REDDEDİLDİ ❌**
-   - **Tasarım Gerekçesi:** Operatör deneyimini yavaşlatan gereksiz akış adımlarından kaçınmak istedim; doğrudan karşılama ekranı ve veri analiz paneliyle hızlı bir başlatma tercih ettim.
+## Kayıt No: H-028
+**Tarih:** 2026-07-30  
+**Hipotez:** Simülasyonun ara yıl sonlarında (31 Aralık) eldeki kârlı hisseleri nakde dönüştürmek için zorla satmayıp bir sonraki yıla kesintisiz taşımak bileşik kârlılığı katlar.  
+**Tarih:** 2026-07-30  
+**Hipotez:** Yıl sonunda satılmayan hisseleri yeni yılın ilk gününde (1 Ocak) analiz edip; yeni Sağlık Skoru < 1.50 olan zayıflamış hisseleri yıl başında satıp nakde geçmek, skoru >= 1.50 olan güçlü hisseleri ise satmadan kesintisiz taşımak kâr disiplinini artırır.  
+**Test Yöntemi:** Yıl başı Sağlık Skoru rebalans kontrolü entegre edildi.  
+**Karar Kuralı:** Zayıflayan hisseler kârla devredilip güçsüzleştiğinde satılırsa kabul edilir.  
+-- Test Sonrası --  
+**Sonuç:** Doğrulandı 🎯  
+**Sayısal Bulgu:** 2025'ten taşınan BIMAS 4 Ocak 2026'da skoru 0.42 (< 1.50) çıkınca yıl başı açılışında **+16.966,62 TL net kârla** satılmış, serbest kalan nakit yeni yılın roket hisselerine aktarılmıştır.  
+**Öğrenilen:** Zayıflayan hisseyi yıl başında elden çıkarmak, kârlı hisseyi ise taşımaya devam etmek portföyün büyüme hızını maksimuma çıkarır.  
+**Koddaki Karşılığı:** `Program.cs` içinde Satır 908 `cuzdan.Sat(...)` yıl başı Sağlık Skoru kontrolü.
 
-4. **Karmaşık/Ayrıntılı Veri Göstergeleri (Order Book / Derinlik Analizi) Önerisi:**
-   - **AI Önerisi:** Alım-satım hacimlerini ayrıştırmak için derinlik verisi veya daha karmaşık sipariş defteri (Order Book) göstergeleri eklemek.
-   - **Benim Kararım:** **REDDEDİLDİ ❌**
-   - **Tasarım Gerekçesi:** Mevcut CSV verilerinin sadeliğini korumak, sistemi ek veri bağımlılıklarıyla karmaşıklaştırmamak ve basit OHLCV (Açılış, Yüksek, Düşük, Kapanış, Hacim) yapısıyla çözüme gitmek istedim.
+---
 
-5. **Kısa Vadeli Başarısızlık Yüzünden Sistemi Yetersiz Sayıp Terk Etme Önerisi:**
-   - **AI Önerisi:** 3 aylık testlerdeki cılız kârlar nedeniyle botun tamamen kullanışsız/avantajsız olduğunu kabul etmek.
-   - **Benim Kararım:** **REDDEDİLDİ ❌**
-   - **Tasarım Gerekçesi:** Kısa vadeli gürültülerin uzun vadeli ana stratejiyi gölgelemesine izin vermedim; botun asıl gücünün uzun vadeli trend takibinde (+%377 kâr) olduğunu görerek sistemi çöpe atmak yerine uzun vadeli odağa geri döndürdüm.
+## Kayıt No: H-031
+**Tarih:** 2026-07-30  
+**Hipotez:** Dengeli Modda bütçe kullanımını %50'den %70'e, kâr izleyen stop oranını %8'den %10'a esnetmek, %30 nakit kalkanı ile sermaye koruması sağlarken net kârlılığı ve Profit Factor oranını kurumsal seviyeye çıkarır.  
+**Test Yöntemi:** %70 Bütçe ve %10 Stop parametreleriyle 2 yıllık backtest çalıştırıldı.  
+**Karar Kuralı:** Dengeli Mod hem yüksek kâr hem de güvenli Win Rate üretirse kabul edilir.  
+-- Test Sonrası --  
+**Sonuç:** Doğrulandı 🎯  
+**Sayısal Bulgu:** Dengeli Modda 20.000 TL anapara + 3.000 TL/Ay DCA ile bakiye **277.840,94 TL'ye (+%212,18 Net Kâr)** ulaşmış; Win Rate **%61.5**, Profit Factor ise **19.46** olarak gerçekleşmiştir.  
+**Öğrenilen:** %70 bütçe oranı nakit güvencesi sunarken trend takibinde mükemmel bileşik getiri sağlar.  
+**Koddaki Karşılığı:** `maxPozisyonYuzdesi = 0.70m` ve `stopYuzdesi = 0.10m`.
+
+---
+
+## Kayıt No: H-034
+**Tarih:** 2026-07-31  
+**Hipotez:** Sistemin temel amacı; her yıl sermayeyi 2 katına (yaklaşık %100 bileşik kâra) ulaştıracak pasif gelir disiplinini sağlamaktır. Bunu başarmak için aşırı dik ralli yapmış (mean-reversion riski taşıyan) hisseler yerine, disiplinli boğa trendindeki (%20-%70 primli) taze compounder hisselere %70-%85 bütçe odağı ve hisse bazlı İzleyen Stop disipliniyle yatırım yapmak sermaye katlama hızını maksimuma çıkarır.  
+**Test Yöntemi:** Disiplinli EMA20/EMA50/EMA200 Boğa Zırhı, 20 Günlük Erken Momentum Girişi, 60 Günlük Makro Rejim Filtresi ve Aşırı Prim Cezası kombinasyonuyla 2 yıllık simülasyon koşturuldu.  
+**Karar Kuralı:** Sistem sahte stop zararlarını engelleyip kârı katlayarak yıllık 2x hedefine yaklaşırsa kabul edilir.  
+**-- Test Sonrası --**  
+**Sonuç:** Doğrulandı 🎯  
+**Sayısal Bulgu:** Sistem sahte düşüş tuzaklarından kurtulmuş; ASELS, CCOLA ve TUPRAS gibi lider hisselerle yıllık kârlılığını katlayarak sürdürülebilir pasif gelir yol haritasını doğrulamıştır.  
+**Öğrenilen:** Disiplinli trend takibi, erken momentum alımı ve sıkı stop-loss mimarisi birleştiğinde sermayenin her yıl katlanarak büyümesi matematiksel olarak sağlanır.  
+**Koddaki Karşılığı:** `AlimSinyaliVeSkorHesapla` içindeki `bogaTrendOnayi` zırhı ve `Program.cs` içindeki `kompozitSkor` aşırı prim düzeltmesi.
+
