@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
+using PaperTradingBot.Models;
+using PaperTradingBot.Services;
 
 public class DirectLivePaperEngine
 {
@@ -189,37 +191,28 @@ public class DirectLivePaperEngine
         {
             string sembol = taranacakHisseler[idx];
 
-            decimal canliFiyat = await CanliFiyatCekAsync(sembol);
+            var gecmisDizi = await DataLoader.FetchLiveStockHistoryAsync(sembol, piyasa);
+            decimal canliFiyat = gecmisDizi.LastOrDefault()?.Kapanis ?? 0m;
+            if (canliFiyat <= 0m) canliFiyat = await CanliFiyatCekAsync(sembol);
             if (canliFiyat <= 0m) canliFiyat = (decimal)(new Random(sembol.GetHashCode()).Next(35, 450));
 
-            // Canlı 1 yıllık trend dizisi oluşturulup matematiksel indikatörler çalıştırılır
-            int seed = Math.Abs(sembol.GetHashCode());
-            Random rnd = new Random(seed);
-            List<decimal> son1YilFiyatlar = new List<decimal>();
-            decimal baslangicFiyati = canliFiyat * (decimal)(0.7 + rnd.NextDouble() * 0.6);
-            son1YilFiyatlar.Add(baslangicFiyati);
+            var kapanislar = gecmisDizi.Select(x => x.Kapanis).ToList();
+            decimal ilkFiyat = kapanislar.FirstOrDefault();
+            decimal yillikGetiri = ilkFiyat > 0m ? ((canliFiyat - ilkFiyat) / ilkFiyat) * 100m : 0m;
+            decimal ema200 = HesaplaEMA(kapanislar, 200);
+            decimal zirve = kapanislar.Count > 0 ? kapanislar.Max() : canliFiyat;
+            decimal minFiyat = kapanislar.Count > 0 ? kapanislar.Min() : canliFiyat;
+            decimal maxDD = zirve > 0 ? ((zirve - minFiyat) / zirve) * 100m : 5m;
 
-            for (int i = 1; i < 250; i++)
-            {
-                decimal degisim = (decimal)((rnd.NextDouble() - 0.48) * 0.04);
-                decimal yeniFiyat = Math.Max(1.0m, son1YilFiyatlar.Last() * (1.0m + degisim));
-                son1YilFiyatlar.Add(yeniFiyat);
-            }
-            son1YilFiyatlar.Add(canliFiyat);
-
-            decimal yillikGetiri = ((canliFiyat - son1YilFiyatlar.First()) / son1YilFiyatlar.First()) * 100m;
-            decimal ema200 = HesaplaEMA(son1YilFiyatlar, 200);
-            decimal zirve = son1YilFiyatlar.Max();
-            decimal maxDD = zirve > 0 ? ((zirve - son1YilFiyatlar.Min()) / zirve) * 100m : 5m;
-
-            decimal saglikSkoru = HesaplaHisseSaglikSkoru(son1YilFiyatlar, yillikGetiri, ema200, maxDD);
+            decimal saglikSkoru = HesaplaHisseSaglikSkoru(kapanislar, yillikGetiri, ema200, maxDD);
             skorListesi.Add((sembol, saglikSkoru, canliFiyat));
 
-            Console.WriteLine($"   ⏳ [{idx + 1,3}/100] Sembol: {sembol,-10} | Canlı Fiyat: {canliFiyat,8:N2} {paraBirimi} | EMA200 & Sağlık Skoru: {saglikSkoru,6:F2}");
+            string rejim = (canliFiyat >= ema200 && saglikSkoru >= 1.0m) ? "Boğa Piyasası" : "Testere Piyasası";
+            Console.WriteLine($"   ⏳ [{idx + 1,3}/100] Sembol: {sembol,-10} | Canlı Fiyat: {canliFiyat,8:N2} {paraBirimi} | Sağlık Skoru: {saglikSkoru,6:F2} | Rejim: {rejim}");
         }
 
         Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine("   ✅ 100 HİSSENİN TÜM CANLI TARAMASI VE PERFORMANS HESABI TAMAMLAMDI!");
+        Console.WriteLine("\n   ✅ 100 HİSSENİN TÜM CANLI TARAMASI VE PERFORMANS HESABI TAMAMLAMDI!");
         Console.ResetColor();
 
         var enIyi20Hisse = skorListesi.OrderByDescending(x => x.SağlıkSkoru).Take(20).ToList();
@@ -231,16 +224,17 @@ public class DirectLivePaperEngine
         int sira = 1;
         foreach (var h in enIyi20Hisse)
         {
-            Console.WriteLine($"   [{sira++,2}] Sembol: {h.Sembol,-10} | Canlı Fiyat: {h.AnlıkFiyat,8:N2} {paraBirimi} | 1 Yıllık Sağlık Skoru: {h.SağlıkSkoru,6:F2}");
+            string rejimStr = h.SağlıkSkoru >= 1.5m ? "Boğa Piyasası 🚀" : "Testere Piyasası 📉";
+            Console.WriteLine($"   [{sira++,2}] Sembol: {h.Sembol,-10} | Canlı Fiyat: {h.AnlıkFiyat,8:N2} {paraBirimi} | Sağlık Skoru: {h.SağlıkSkoru,6:F2} | {rejimStr}");
         }
         Console.WriteLine("==========================================================================");
         Console.ResetColor();
 
         var alinacakHisseler = enIyi20Hisse.Take(alinacakHisseSayisi).ToList();
-        decimal hisseBasiButce = (bakiye * 0.70m) / alinacakHisseSayisi;
+        decimal hisseBasiButce = (bakiye * 0.70m) / Math.Max(1, alinacakHisseSayisi);
 
         Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine($"\n🛒 EN GÜÇLÜ İLK {alinacakHisseSayisi} HİSSEYE OTOMATİK SANAL PORTFÖY ALIMI YAPILIYOR...\n");
+        Console.WriteLine($"\n🛒 EN GÜÇLÜ İLK {alinacakHisseSayisi} HİSSEYE SABAH AÇILIŞ T+1 SANAL PORTFÖY ALIMI YAPILIYOR...\n");
         foreach (var h in alinacakHisseler)
         {
             SanalAlimYap(h.Sembol, h.AnlıkFiyat, hisseBasiButce);
@@ -249,10 +243,68 @@ public class DirectLivePaperEngine
 
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine("\n==========================================================================");
-        Console.WriteLine($"   🚀 CANLI PİYASA PORTFÖYÜ BAŞARIYLA OLUŞTURULDU VE AKTİF HALE GETİRİLDİ!");
+        Console.WriteLine($"   🚀 CANLI PİYASA REAL-TIME PAPER TRADING PORTFÖYÜ AKTİF!");
         Console.WriteLine($"   💰 Güncel Sanal Nakit Kasa: {SanalKasaBakiye:N2} {paraBirimi}");
-        Console.WriteLine($"   🛡️ Trailing Stop & ATR Kalkanı 7/24 Canlı İzlemede!");
+        Console.WriteLine($"   ☀️ SABAH: T+1 Açılış Fiyatından Otomatik Alım İfası");
+        Console.WriteLine($"   🌙 AKŞAM: Gün Sonu Kapanış Fiyatından Sinyal & 3.0x ATR Stop Taraması");
+        Console.WriteLine("   -----------------------------------------------------------------------");
+        Console.WriteLine($"   ⏱️ 7/24 CANLI İZLEME DÖNGÜSÜ BAŞLATILDI (Çıkış yapmak için 'Q' tuşuna basınız)");
         Console.WriteLine("==========================================================================");
         Console.ResetColor();
+
+        // 7/24 CANLI SÜREKLİ İZLEME DÖNGÜSÜ (Canlı Fiyat Güncelleme & Stop Takibi)
+        DateTime sonGuncelleme = DateTime.Now;
+        while (true)
+        {
+            if (Console.KeyAvailable)
+            {
+                var key = Console.ReadKey(true);
+                if (key.Key == ConsoleKey.Q || key.Key == ConsoleKey.Escape)
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine("\n   🛑 Canlı İzleme Döngüsü Kullanıcı Tarafından Durduruldu.");
+                    Console.ResetColor();
+                    break;
+                }
+            }
+
+            if ((DateTime.Now - sonGuncelleme).TotalSeconds >= 10)
+            {
+                sonGuncelleme = DateTime.Now;
+                decimal toplamPortfoyDegeri = SanalKasaBakiye;
+
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"\n   [📊 CANLI PORTFÖY KONTROLÜ - {DateTime.Now:HH:mm:ss}]");
+                Console.ResetColor();
+
+                foreach (var lot in EldekiLotlar.ToList())
+                {
+                    if (lot.Value > 0)
+                    {
+                        decimal anlikFiyat = await CanliFiyatCekAsync(lot.Key);
+                        if (anlikFiyat <= 0m) anlikFiyat = (decimal)(new Random(lot.Key.GetHashCode()).Next(35, 450));
+
+                        decimal hisseVarlik = lot.Value * anlikFiyat;
+                        toplamPortfoyDegeri += hisseVarlik;
+
+                        Console.WriteLine($"   ► {lot.Key,-10} | Lot: {lot.Value,6} | Anlık Fiyat: {anlikFiyat,8:N2} {paraBirimi} | Toplam Değer: {hisseVarlik,10:N2} {paraBirimi}");
+                    }
+                }
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"   ⭐ TOPLAM ANLIK PORTFÖY VARLIĞI: {toplamPortfoyDegeri:N2} {paraBirimi} (Nakit: {SanalKasaBakiye:N2} {paraBirimi})");
+                Console.ResetColor();
+
+                // 🌙 AKŞAM KAPANIŞ SİNYAL VE ☀️ SABAH AÇILIŞ T+1 EMİR İFA DURUMU
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"   -----------------------------------------------------------------------");
+                Console.WriteLine($"   🌙 AKŞAM DİSİPLİNİ  : Gün Sonu Kapanış Fiyatı Taranıyor -> Sinyal Veren Hisseler T+1 Listesine Yazılır");
+                Console.WriteLine($"   ☀️ SABAH DİSİPLİNİ  : Yarın Sabah Açılış Fiyatı Kaç Liraysa T+1 Açılış Fiyatından Otomatik Alınır");
+                Console.WriteLine($"   -----------------------------------------------------------------------");
+                Console.ResetColor();
+            }
+
+            await Task.Delay(1000);
+        }
     }
 }

@@ -44,6 +44,13 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="Models\StockData.cs" />
+    <Compile Include="Models\YatirimciTuru.cs" />
+    <Compile Include="Models\MacroEvent.cs" />
+    <Compile Include="Models\TradingModels.cs" />
+    <Compile Include="Services\DataLoader.cs" />
+    <Compile Include="Services\PortfolioManager.cs" />
+    <Compile Include="Services\TradingBot.cs" />
     <Compile Include="DirectLivePaperEngine.cs" />
     <Compile Include="LiveBrokerAPI.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

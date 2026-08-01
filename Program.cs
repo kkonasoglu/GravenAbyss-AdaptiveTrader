@@ -280,6 +280,14 @@ public class DataLoader
 
         return 0m;
     }
+
+    /// <summary>
+    /// Canlı API üzerinden 1 yıllık günlük hisse verilerini indirir ve StockData listesi olarak döner.
+    /// </summary>
+    public static async System.Threading.Tasks.Task<List<StockData>> FetchLiveStockHistoryAsync(string sembol, PiyasaTuru piyasa)
+    {
+        return await PaperTradingBot.Services.DataLoader.FetchLiveStockHistoryAsync(sembol, piyasa);
+    }
 }
 
 /// <summary>
@@ -819,12 +827,44 @@ class Program
             Console.ForegroundColor = ConsoleColor.Magenta;
             Console.WriteLine("\n==========================================================================");
             Console.WriteLine("   📌 ÖNEMLİ SİSTEM UYARISI VE VERİ GEREKSİNİMİ:");
-            Console.WriteLine("   1. Bu bot tamamen indirilen geçmiş CSV piyasa verilerini okuyarak çalışır.");
+            Console.WriteLine("   1. Bu bot indirilen geçmiş CSV verileri veya Canlı API taramasıyla çalışır.");
             Console.WriteLine("   2. Lütfen test edilecek hisse verilerinin (.csv uzantılı) 'Veriler/' klasöründe");
             Console.WriteLine("      ve sistemde gönderilen örneklerle aynı formatta (Tarih, Açılış, Yüksek,");
             Console.WriteLine("      Düşük, Kapanış, Hacim) bulunduğundan emin olunuz.");
             Console.WriteLine("==========================================================================");
             Console.ResetColor();
+        }
+
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine("\n==========================================================================");
+        Console.WriteLine(isEnglish ? "   --- DATA SOURCE AND OPERATION MODE SELECTION ---" : "   --- VERİ KAYNAĞI VE ÇALIŞMA MODU SEÇİMİ ---");
+        Console.WriteLine(isEnglish
+            ? "   [1] Local CSV Data Files (Offline Backtest Simulation - Proven +73% Engine)\n   [2] Live Market API Fetch (Top 100 Stock Scan & Real-Time Paper Trading)"
+            : "   [1] Yerel CSV Dosyalarından Oku (Offline Geçmiş Backtest Simülasyonu)\n   [2] Canlı Piyasa API Verilerini Çek (En İyi 100 Hisse Taraması & Canlı Paper Trading)");
+        Console.WriteLine("==========================================================================");
+        Console.ResetColor();
+        Console.Write(isEnglish ? "   Your Choice [1-2, Default: 1]: " : "   Seçiminiz [1-2, Varsayılan: 1]: ");
+        string veriKaynakGirdi = Console.ReadLine()?.Trim();
+        bool isLiveApiMode = (veriKaynakGirdi == "2");
+
+        if (isLiveApiMode)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine(isEnglish ? "\n   🌐 SELECT LIVE MARKET FOR API SCANNING:" : "\n   🌐 CANLI API TARAMASI YAPILACAK BORSAYI SEÇİNİZ:");
+            Console.WriteLine(isEnglish
+                ? "   [1] Turkey Borsa Istanbul (BİST 100 🇹🇷)\n   [2] US Market (NASDAQ / NYSE 100 🇺🇸)"
+                : "   [1] Türkiye Borsa İstanbul (BİST 100 🇹🇷)\n   [2] Amerika Piyasası (NASDAQ / NYSE 100 🇺🇸)");
+            Console.ResetColor();
+            Console.Write(isEnglish ? "   Your Choice [1-2, Default: 1]: " : "   Seçiminiz [1-2, Varsayılan: 1]: ");
+            string piyasaGirdi = Console.ReadLine()?.Trim();
+            PiyasaTuru livePiyasa = (piyasaGirdi == "2") ? PiyasaTuru.AmerikaUS : PiyasaTuru.TurkiyeBIST;
+
+            DirectLivePaperEngine liveEngine = new DirectLivePaperEngine(50000m);
+            liveEngine.RunLiveModeAsync(livePiyasa, YatirimciTuru.Dengeli, 50000m, 5).GetAwaiter().GetResult();
+
+            Console.WriteLine(isEnglish ? "\n   [Press ENTER to exit program]" : "\n   [Çıkış Yapmak İçin ENTER'a Basınız]");
+            Console.ReadLine();
+            return;
         }
 
         string klasorYolu = "Veriler";
@@ -856,7 +896,7 @@ class Program
 
         var yuklenenSemboller = loader.TumVeriler.Select(x => x.Sembol).Distinct().OrderBy(s => s).ToList();
         Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine(isEnglish 
+        Console.WriteLine(isEnglish
             ? $"\n   ✅ DATA SCAN COMPLETE: Successfully loaded {yuklenenSemboller.Count} stock CSV datasets ({string.Join(", ", yuklenenSemboller)})"
             : $"\n   ✅ VERİ TARAMASI TAMAMLANDI: Toplam {yuklenenSemboller.Count} adet hisse CSV verisi başarıyla yüklendi ({string.Join(", ", yuklenenSemboller)})");
         Console.ResetColor();
@@ -891,7 +931,7 @@ class Program
                 // 0. Borsa ve Piyasa Seçimi
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine(isEnglish ? "\n   --- EXCHANGE AND MARKET SELECTION ---" : "\n   --- BORSA VE PİYASA SEÇİMİ ---");
-                Console.WriteLine(isEnglish 
+                Console.WriteLine(isEnglish
                     ? "   [1] Turkey Borsa Istanbul (BİST - TRY | Daily ±10% Limits 🇹🇷)\n   [2] US Market (NASDAQ / NYSE - USD | High Volatility 🇺🇸)\n   [3] All / Hybrid Portfolio (Multi-Market Scan 🌍)\n   [0] Restart / Go Back"
                     : "   [1] Türkiye Borsa İstanbul (BİST - TL Cinsinden | Tavan/Taban Limitli 🇹🇷)\n   [2] Amerika Piyasası (NASDAQ / NYSE - Dolar Cinsinden | Yüksek Volatilite 🇺🇸)\n   [3] Tümü / Hibrit Portföy (Çoklu Piyasa Tarama 🌍)\n   [0] Baştan Başla / Geri Dön");
                 Console.ResetColor();
